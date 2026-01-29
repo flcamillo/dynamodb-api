@@ -5,27 +5,45 @@ import (
 	"api/models"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// Configuração do LambdaHandler.
+type LambdaHandlerConfig struct {
+	// log de aplicação
+	Log interfaces.Log
+	// repositório de dados
+	Repository interfaces.Repository
+}
 
 // Estrutura do LambdaHandler.
 type LambdaHandler struct {
-	repository interfaces.Repository
+	// configuração do handler
+	config *LambdaHandlerConfig
+	// configura o tracer
+	tracer trace.Tracer
 }
 
 // Cria uma nova instância do LambdaHandler.
-func NewLambdaHandler(repository interfaces.Repository) *LambdaHandler {
+func NewLambdaHandler(config *LambdaHandlerConfig) *LambdaHandler {
 	return &LambdaHandler{
-		repository: repository,
+		config: config,
+		tracer: otel.Tracer("lambda.handler"),
 	}
 }
 
 // Identifica o método HTTP da requisição e direciona para o handler apropriado.
 func (p *LambdaHandler) HandleRequest(ctx context.Context, request events.APIGatewayV2HTTPRequest) (response events.APIGatewayV2HTTPResponse, err error) {
+	p.config.Log.Info("received {%s} request from {%s} on {%s} agent {%s}", request.RequestContext.HTTP.Method, request.RequestContext.HTTP.SourceIP, request.RequestContext.HTTP.Path, request.RequestContext.HTTP.UserAgent)
 	switch request.RequestContext.HTTP.Method {
 	case "GET":
 		return p.handleGet(ctx, request)
@@ -45,9 +63,12 @@ func (p *LambdaHandler) HandleRequest(ctx context.Context, request events.APIGat
 
 // Processa requisições GET.
 func (p *LambdaHandler) handleGet(ctx context.Context, request events.APIGatewayV2HTTPRequest) (response events.APIGatewayV2HTTPResponse, err error) {
+	ctx, span := p.tracer.Start(ctx, "get")
+	defer span.End()
 	id := request.PathParameters["id"]
 	if id == "" {
-		return p.toJson(models.ErrorResponse{
+		span.AddEvent("id not provided")
+		return p.toJson(ctx, models.ErrorResponse{
 			Type:     "about:blank",
 			Title:    "Bad Request",
 			Status:   http.StatusBadRequest,
@@ -55,9 +76,10 @@ func (p *LambdaHandler) handleGet(ctx context.Context, request events.APIGateway
 			Instance: request.RequestContext.HTTP.Path,
 		}, http.StatusBadRequest)
 	}
-	event, err := p.repository.Get(ctx, id)
+	event, err := p.config.Repository.Get(ctx, id)
 	if err != nil {
-		return p.toJson(models.ErrorResponse{
+		span.RecordError(err)
+		return p.toJson(ctx, models.ErrorResponse{
 			Type:     "about:blank",
 			Title:    "Internal Server Error",
 			Status:   http.StatusInternalServerError,
@@ -66,7 +88,7 @@ func (p *LambdaHandler) handleGet(ctx context.Context, request events.APIGateway
 		}, http.StatusInternalServerError)
 	}
 	if event == nil {
-		return p.toJson(models.ErrorResponse{
+		return p.toJson(ctx, models.ErrorResponse{
 			Type:     "about:blank",
 			Title:    "Not Found",
 			Status:   http.StatusNotFound,
@@ -74,14 +96,17 @@ func (p *LambdaHandler) handleGet(ctx context.Context, request events.APIGateway
 			Instance: request.RequestContext.HTTP.Path,
 		}, http.StatusNotFound)
 	}
-	return p.toJson(event, http.StatusOK)
+	return p.toJson(ctx, event, http.StatusOK)
 }
 
 // Processa requisições POST.
 func (p *LambdaHandler) handlePost(ctx context.Context, request events.APIGatewayV2HTTPRequest) (response events.APIGatewayV2HTTPResponse, err error) {
+	ctx, span := p.tracer.Start(ctx, "post")
+	defer span.End()
 	event := &models.Event{}
 	if err := json.NewDecoder(strings.NewReader(request.Body)).Decode(event); err != nil {
-		return p.toJson(models.ErrorResponse{
+		span.RecordError(err)
+		return p.toJson(ctx, models.ErrorResponse{
 			Type:     "https://www.rfc-editor.org/rfc/rfc8259",
 			Title:    "Invalid JSON",
 			Status:   http.StatusBadRequest,
@@ -90,7 +115,8 @@ func (p *LambdaHandler) handlePost(ctx context.Context, request events.APIGatewa
 		}, http.StatusBadRequest)
 	}
 	if err = event.Validate(); err != nil {
-		return p.toJson(models.ErrorResponse{
+		span.RecordError(err)
+		return p.toJson(ctx, models.ErrorResponse{
 			Type:     "about:blank",
 			Title:    "Invalid Body",
 			Status:   http.StatusBadRequest,
@@ -99,9 +125,10 @@ func (p *LambdaHandler) handlePost(ctx context.Context, request events.APIGatewa
 		}, http.StatusBadRequest)
 	}
 	event.Id = uuid.New().String()
-	err = p.repository.Save(ctx, event)
+	err = p.config.Repository.Save(ctx, event)
 	if err != nil {
-		return p.toJson(models.ErrorResponse{
+		span.RecordError(err)
+		return p.toJson(ctx, models.ErrorResponse{
 			Type:     "about:blank",
 			Title:    "Internal Server Error",
 			Status:   http.StatusInternalServerError,
@@ -109,14 +136,17 @@ func (p *LambdaHandler) handlePost(ctx context.Context, request events.APIGatewa
 			Instance: request.RequestContext.HTTP.Path,
 		}, http.StatusInternalServerError)
 	}
-	return p.toJson(event, http.StatusCreated)
+	return p.toJson(ctx, event, http.StatusCreated)
 }
 
 // Processa requisições PUT.
 func (p *LambdaHandler) handlePut(ctx context.Context, request events.APIGatewayV2HTTPRequest) (response events.APIGatewayV2HTTPResponse, err error) {
+	ctx, span := p.tracer.Start(ctx, "put")
+	defer span.End()
 	id := request.PathParameters["id"]
 	if id == "" {
-		return p.toJson(models.ErrorResponse{
+		span.AddEvent("id not provided")
+		return p.toJson(ctx, models.ErrorResponse{
 			Type:     "about:blank",
 			Title:    "Bad Request",
 			Status:   http.StatusBadRequest,
@@ -126,7 +156,8 @@ func (p *LambdaHandler) handlePut(ctx context.Context, request events.APIGateway
 	}
 	event := &models.Event{}
 	if err := json.NewDecoder(strings.NewReader(request.Body)).Decode(event); err != nil {
-		return p.toJson(models.ErrorResponse{
+		span.RecordError(err)
+		return p.toJson(ctx, models.ErrorResponse{
 			Type:     "https://www.rfc-editor.org/rfc/rfc8259",
 			Title:    "Invalid JSON",
 			Status:   http.StatusBadRequest,
@@ -135,7 +166,8 @@ func (p *LambdaHandler) handlePut(ctx context.Context, request events.APIGateway
 		}, http.StatusBadRequest)
 	}
 	if err = event.Validate(); err != nil {
-		return p.toJson(models.ErrorResponse{
+		span.RecordError(err)
+		return p.toJson(ctx, models.ErrorResponse{
 			Type:     "about:blank",
 			Title:    "Invalid Body",
 			Status:   http.StatusBadRequest,
@@ -144,9 +176,10 @@ func (p *LambdaHandler) handlePut(ctx context.Context, request events.APIGateway
 		}, http.StatusBadRequest)
 	}
 	event.Id = id
-	err = p.repository.Save(ctx, event)
+	err = p.config.Repository.Save(ctx, event)
 	if err != nil {
-		return p.toJson(models.ErrorResponse{
+		span.RecordError(err)
+		return p.toJson(ctx, models.ErrorResponse{
 			Type:     "about:blank",
 			Title:    "Internal Server Error",
 			Status:   http.StatusInternalServerError,
@@ -154,14 +187,17 @@ func (p *LambdaHandler) handlePut(ctx context.Context, request events.APIGateway
 			Instance: request.RequestContext.HTTP.Path,
 		}, http.StatusInternalServerError)
 	}
-	return p.toJson(event, http.StatusCreated)
+	return p.toJson(ctx, event, http.StatusCreated)
 }
 
 // Processa requisições DELETE.
 func (p *LambdaHandler) handleDelete(ctx context.Context, request events.APIGatewayV2HTTPRequest) (response events.APIGatewayV2HTTPResponse, err error) {
+	ctx, span := p.tracer.Start(ctx, "delete")
+	defer span.End()
 	id := request.PathParameters["id"]
 	if id == "" {
-		return p.toJson(models.ErrorResponse{
+		span.AddEvent("id not provided")
+		return p.toJson(ctx, models.ErrorResponse{
 			Type:     "about:blank",
 			Title:    "Bad Request",
 			Status:   http.StatusBadRequest,
@@ -169,9 +205,10 @@ func (p *LambdaHandler) handleDelete(ctx context.Context, request events.APIGate
 			Instance: request.RequestContext.HTTP.Path,
 		}, http.StatusBadRequest)
 	}
-	event, err := p.repository.Delete(ctx, id)
+	event, err := p.config.Repository.Delete(ctx, id)
 	if err != nil {
-		return p.toJson(models.ErrorResponse{
+		span.RecordError(err)
+		return p.toJson(ctx, models.ErrorResponse{
 			Type:     "about:blank",
 			Title:    "Internal Server Error",
 			Status:   http.StatusInternalServerError,
@@ -180,7 +217,7 @@ func (p *LambdaHandler) handleDelete(ctx context.Context, request events.APIGate
 		}, http.StatusInternalServerError)
 	}
 	if event == nil {
-		return p.toJson(models.ErrorResponse{
+		return p.toJson(ctx, models.ErrorResponse{
 			Type:     "about:blank",
 			Title:    "Not Found",
 			Status:   http.StatusNotFound,
@@ -193,8 +230,73 @@ func (p *LambdaHandler) handleDelete(ctx context.Context, request events.APIGate
 	}, nil
 }
 
+// Processa requisições GET com filtro.
+func (p *LambdaHandler) handleFind(ctx context.Context, request events.APIGatewayV2HTTPRequest) (response events.APIGatewayV2HTTPResponse, err error) {
+	ctx, span := p.tracer.Start(ctx, "find")
+	defer span.End()
+	// configura valores default caso sejam informados
+	from := time.Now().Add(-1 * time.Hour)
+	to := time.Now()
+	statusCode := 0
+	// trata os valores informados atualizando o default
+	// se necessário
+	if v := strings.TrimSpace(request.QueryStringParameters["from"]); v != "" {
+		from, err = time.Parse(time.RFC3339, v)
+		if err != nil {
+			span.RecordError(err)
+			return p.toJson(ctx, models.ErrorResponse{
+				Type:     "about:blank",
+				Title:    "Invalid Body",
+				Status:   http.StatusBadRequest,
+				Detail:   fmt.Sprintf("parameter {from} invalid, %s", err.Error()),
+				Instance: request.RequestContext.HTTP.Path,
+			}, http.StatusBadRequest)
+		}
+	}
+	if v := strings.TrimSpace(request.QueryStringParameters["to"]); v != "" {
+		to, err = time.Parse(time.RFC3339, v)
+		if err != nil {
+			span.RecordError(err)
+			return p.toJson(ctx, models.ErrorResponse{
+				Type:     "about:blank",
+				Title:    "Invalid Body",
+				Status:   http.StatusBadRequest,
+				Detail:   fmt.Sprintf("parameter {to} invalid, %s", err.Error()),
+				Instance: request.RequestContext.HTTP.Path,
+			}, http.StatusBadRequest)
+		}
+	}
+	if v := strings.TrimSpace(request.QueryStringParameters["statusCode"]); v != "" {
+		statusCode, err = strconv.Atoi(v)
+		if err != nil {
+			span.RecordError(err)
+			return p.toJson(ctx, models.ErrorResponse{
+				Type:     "about:blank",
+				Title:    "Invalid Body",
+				Status:   http.StatusBadRequest,
+				Detail:   fmt.Sprintf("parameter {statusCode} invalid, %s", err.Error()),
+				Instance: request.RequestContext.HTTP.Path,
+			}, http.StatusBadRequest)
+		}
+	}
+	events, err := p.config.Repository.FindByDateAndReturnCode(ctx, from, to, statusCode)
+	if err != nil {
+		span.RecordError(err)
+		return p.toJson(ctx, models.ErrorResponse{
+			Type:     "about:blank",
+			Title:    "Internal Server Error",
+			Status:   http.StatusInternalServerError,
+			Detail:   err.Error(),
+			Instance: request.RequestContext.HTTP.Path,
+		}, http.StatusInternalServerError)
+	}
+	return p.toJson(ctx, events, http.StatusOK)
+}
+
 // Converte o objeto para JSON e escreve na resposta HTTP.
-func (p *LambdaHandler) toJson(object interface{}, statusCode int) (response events.APIGatewayV2HTTPResponse, err error) {
+func (p *LambdaHandler) toJson(ctx context.Context, object interface{}, statusCode int) (response events.APIGatewayV2HTTPResponse, err error) {
+	ctx, span := p.tracer.Start(ctx, "toJson")
+	defer span.End()
 	data, err := json.Marshal(object)
 	if err != nil {
 		return events.APIGatewayV2HTTPResponse{

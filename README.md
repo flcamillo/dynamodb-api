@@ -1,285 +1,785 @@
-# DynamoDB API
+# DynamoDB API - Documentação Completa
 
-Uma API REST robusta desenvolvida em Go para gerenciar eventos com suporte a AWS DynamoDB e AWS Lambda. O projeto oferece múltiplas formas de deployment e é totalmente testado com cobertura acima de 90%.
+Uma API RESTful robusta construída em Go para gerenciar eventos utilizando AWS DynamoDB ou um repositório em memória. A aplicação oferece suporte a múltiplos modos de deployment (HTTP Server e AWS Lambda), com telemetria integrada via OpenTelemetry.
 
-## 📋 Tabela de Conteúdos
+## 📋 Índice
 
-- [Visão Geral](#visão-geral)
+- [Características](#características)
+- [Arquitetura](#arquitetura)
 - [Requisitos](#requisitos)
-- [Instalação](#instalação)
+- [Instalação e Configuração](#instalação-e-configuração)
+- [Executando a Aplicação](#executando-a-aplicação)
+- [Endpoints da API](#endpoints-da-api)
+- [Exemplos com cURL](#exemplos-com-curl)
 - [Estrutura do Projeto](#estrutura-do-projeto)
-- [Bibliotecas Utilizadas](#bibliotecas-utilizadas)
 - [Configuração](#configuração)
-- [Uso](#uso)
-- [API REST](#api-rest)
-- [Testes](#testes)
-- [Cobertura de Código](#cobertura-de-código)
-- [Deploy](#deploy)
-- [Contribuindo](#contribuindo)
+- [Telemetria e Observabilidade](#telemetria-e-observabilidade)
 
-## 🎯 Visão Geral
+## ✨ Características
 
-Este projeto é uma API REST completa para gerenciamento de eventos com as seguintes características:
+- ✅ **API RESTful completa** para CRUD de eventos
+- ✅ **Suporte dual**: HTTP Server + AWS Lambda
+- ✅ **Repositórios plugáveis**: DynamoDB e In-Memory
+- ✅ **OpenTelemetry integrado** para observabilidade
+- ✅ **Métricas e Tracing** automáticos
+- ✅ **Validação de dados** robusta
+- ✅ **TTL (Time To Live)** para expiração automática de registros
+- ✅ **Suporte a metadata** customizável por evento
+- ✅ **Testes unitários** com 90%+ de cobertura
 
-- **Dual Deployment**: Funciona como servidor HTTP standalone ou como AWS Lambda function
-- **Armazenamento Flexível**: Suporta armazenamento em memória (desenvolvimento) ou DynamoDB (produção)
-- **RFC 9457 Compliance**: Respostas de erro segue o padrão RFC 9457 (Problem Details for HTTP APIs)
-- **Testes Abrangentes**: Cobertura de código > 95% com testes unitários completos
-- **Validação de Dados**: Validação automática de eventos com data e status code
+## 🏗️ Arquitetura
+
+### Diagrama de Componentes
+
+```mermaid
+graph TB
+    Client["🖥️ Cliente HTTP"]
+    Lambda["⚡ AWS Lambda"]
+    
+    Client -->|HTTP| API["🌐 HTTP API<br/>Port 7000"]
+    Lambda -->|Event| LambdaAPI["📦 Lambda API"]
+    
+    API -->|Request| HTTPHandler["🔧 HTTP Handler"]
+    LambdaAPI -->|Event| LambdaHandler["🔧 Lambda Handler"]
+    
+    HTTPHandler -->|CRUD| Repo["📊 Repository Interface"]
+    LambdaHandler -->|CRUD| Repo
+    
+    Repo -->|Config| DynamoDB["🗄️ DynamoDB"]
+    Repo -->|Config| MemoryDB["💾 In-Memory DB"]
+    
+    DynamoDB -->|AWS SDK| AWS["☁️ AWS Cloud"]
+    
+    HTTPHandler -->|Metrics| OTel["📈 OpenTelemetry"]
+    LambdaHandler -->|Tracing| OTel
+    
+    OTel -->|Export| Collector["📡 OTEL Collector<br/>:4317"]
+    Collector -->|Prometheus| Prom["📊 Prometheus"]
+    Collector -->|Jaeger| Jaeger["🔍 Jaeger"]
+```
+
+### Fluxo de Dados
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API as HTTP/Lambda API
+    participant Handler as Handler
+    participant Repo as Repository
+    participant DB as DynamoDB/Memory
+    participant OTel as OpenTelemetry
+    
+    Client->>API: HTTP Request / Lambda Event
+    API->>Handler: HandleRequest
+    
+    Handler->>Handler: Validate Input
+    Handler->>OTel: Start Span
+    
+    Handler->>Repo: Save/Get/Delete/Find
+    Repo->>DB: Execute Operation
+    DB-->>Repo: Result
+    
+    Repo-->>Handler: Response
+    
+    Handler->>OTel: Add Metrics
+    Handler->>OTel: Record Latency
+    OTel-->>Handler: OK
+    
+    Handler-->>API: JSON Response
+    API-->>Client: HTTP 200/400/500
+```
+
+### Estrutura de Camadas
+
+```mermaid
+graph TB
+    subgraph "HTTP Server"
+        direction LR
+        HTTP["HTTP Router"]
+        HTTPHandler["HTTP Handler"]
+        HTTP -->|Route| HTTPHandler
+    end
+    
+    subgraph "Lambda Function"
+        direction LR
+        LambdaEvent["Lambda Event"]
+        LambdaHandler["Lambda Handler"]
+        LambdaEvent -->|Parse| LambdaHandler
+    end
+    
+    subgraph "Core Application"
+        direction TB
+        Handler["Request Handler"]
+        Validator["Validator"]
+        Handler -->|Validate| Validator
+    end
+    
+    subgraph "Data Layer"
+        direction TB
+        RepoInterface["Repository Interface"]
+        DynamoRepo["DynamoDB Repository"]
+        MemRepo["Memory Repository"]
+        RepoInterface -->|Implements| DynamoRepo
+        RepoInterface -->|Implements| MemRepo
+    end
+    
+    subgraph "External Services"
+        direction LR
+        DynamoDB["AWS DynamoDB"]
+        OTel["OpenTelemetry"]
+        Logs["Structured Logs"]
+    end
+    
+    HTTPHandler -->|Uses| Handler
+    LambdaHandler -->|Uses| Handler
+    Handler -->|Uses| RepoInterface
+    DynamoRepo -->|Calls| DynamoDB
+    Handler -->|Sends| OTel
+    Handler -->|Writes| Logs
+```
 
 ## 📦 Requisitos
 
-- **Go**: 1.25.5 ou superior
-- **AWS CLI**: (opcional, para configurar credenciais da AWS)
-- **Docker**: (opcional, para containerizar a aplicação)
+- **Go**: 1.21+
+- **AWS SDK for Go**: v2
+- **Docker**: (opcional, para DynamoDB local e OTEL Collector)
+- **curl** ou **Postman**: para testar endpoints
 
-### Dependências de Produção
-
-- `github.com/aws/aws-sdk-go-v2`: AWS SDK v2 para Go
-- `github.com/aws/aws-sdk-go-v2/service/dynamodb`: Cliente DynamoDB
-- `github.com/aws/aws-lambda-go`: Framework para funções Lambda
-- `github.com/google/uuid`: Geração de UUIDs
-
-## 🚀 Instalação
-
-### 1. Clone o repositório
+### Dependências Go
 
 ```bash
-git clone <repository-url>
-cd dynamodb-api
+go get github.com/aws/aws-sdk-go-v2
+go get github.com/aws/aws-lambda-go
+go get go.opentelemetry.io/otel
+go get github.com/google/uuid
 ```
 
-### 2. Instale as dependências
+## 🚀 Instalação e Configuração
+
+### 1. Clone o Repositório
+
+```bash
+cd d:\Fabio\Go\src\dynamodb-api
+```
+
+### 2. Instale as Dependências
 
 ```bash
 go mod download
+go mod tidy
 ```
 
-### 3. Configure as variáveis de ambiente (opcional)
+### 3. Configure o arquivo `config.json`
+
+```json
+{
+  "address": "localhost",
+  "port": 7000,
+  "record_ttl_minutes": 1440
+}
+```
+
+**Parâmetros:**
+- `address`: Endereço de binding do servidor (default: 0.0.0.0)
+- `port`: Porta do servidor (default: 7000)
+- `record_ttl_minutes`: Tempo de vida dos registros em minutos (default: 1440 = 24 horas)
+
+### 4. Configure Variáveis de Ambiente (AWS)
 
 ```bash
-export API_PORT=8080  # Porta padrão é 8080
-```
-
-### 4. Compile o projeto
-
-```bash
-go build -o api
-```
-
-## 📁 Estrutura do Projeto
-
-```
-dynamodb-api/
-├── apis/                      # Camada de entrada da API
-│   ├── api_http.go           # HTTP server
-│   ├── api_http_test.go      # Testes do HTTP server
-│   ├── api_lambda.go         # AWS Lambda handler
-│   └── api_lambda_test.go    # Testes do Lambda handler
-│
-├── handlers/                  # Camada de lógica de requisições
-│   ├── handler_http.go       # Handlers HTTP
-│   ├── handler_http_test.go  # Testes dos handlers HTTP
-│   ├── handler_lambda.go     # Handlers Lambda
-│   └── handler_lambda_test.go # Testes dos handlers Lambda
-│
-├── repositories/             # Camada de persistência
-│   ├── dynamodb.go           # Implementação DynamoDB
-│   ├── dynamodb_test.go      # Testes DynamoDB (95.1% cobertura)
-│   ├── memorydb.go           # Implementação em memória
-│   └── memorydb_test.go      # Testes MemoryDB
-│
-├── models/                   # Modelos de dados
-│   ├── event.go              # Modelo de Evento
-│   ├── event_test.go         # Testes do modelo Event
-│   ├── error_response.go     # Modelo de resposta de erro (RFC 9457)
-│   └── error_response_test.go # Testes do ErrorResponse
-│
-├── interfaces/               # Contatos/Interfaces
-│   ├── repository.go         # Interface Repository
-│   └── dynamodb_client.go    # Interface DynamoDBClient
-│
-├── main.go                   # Ponto de entrada da aplicação
-├── go.mod                    # Definição do módulo
-├── go.sum                    # Checksums das dependências
-└── README.md                 # Este arquivo
-```
-
-## 📚 Bibliotecas Utilizadas
-
-### Dependências Diretas
-
-| Biblioteca | Versão | Propósito |
-|-----------|--------|----------|
-| `github.com/aws/aws-lambda-go` | v1.52.0 | Framework para AWS Lambda |
-| `github.com/aws/aws-sdk-go-v2` | v1.41.1 | AWS SDK para Go |
-| `github.com/aws/aws-sdk-go-v2/config` | v1.32.7 | Configuração AWS SDK |
-| `github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue` | v1.20.30 | Conversão de atributos DynamoDB |
-| `github.com/aws/aws-sdk-go-v2/service/dynamodb` | v1.53.6 | Cliente DynamoDB |
-| `github.com/google/uuid` | v1.6.0 | Geração de UUIDs |
-
-### Dependências Indiretas
-
-As dependências indiretas são gerenciadas automaticamente pelo `go mod` e incluem suporte a credenciais AWS, serviços de configuração e autenticação.
-
-## ⚙️ Configuração
-
-### Variáveis de Ambiente
-
-```bash
-# Porta da API (padrão: 8080)
-export API_PORT=8080
-
-# Região AWS (padrão: conforme configuração AWS)
+# Para usar AWS DynamoDB real
 export AWS_REGION=us-east-1
+export AWS_ACCESS_KEY_ID=seu_access_key
+export AWS_SECRET_ACCESS_KEY=seu_secret_key
 
-# Tabela DynamoDB (configurável no código)
-# DYNAMODB_TABLE=eventos
-
-# Profile AWS
-export AWS_PROFILE=default
+# Para usar DynamoDB local
+export AWS_ENDPOINT_URL_DYNAMODB=http://localhost:8000
+export AWS_REGION=local
 ```
 
-### Configuração de Credenciais AWS
+## ▶️ Executando a Aplicação
 
-#### Usando arquivo ~/.aws/credentials
-
-```ini
-[default]
-aws_access_key_id = YOUR_ACCESS_KEY
-aws_secret_access_key = YOUR_SECRET_KEY
-```
-
-#### Usando variáveis de ambiente
+### Opção 1: HTTP Server Local
 
 ```bash
-export AWS_ACCESS_KEY_ID=YOUR_ACCESS_KEY
-export AWS_SECRET_ACCESS_KEY=YOUR_SECRET_KEY
+go run main.go
 ```
 
-#### Usando IAM Role (para Lambda)
+A API estará disponível em `http://localhost:7000`
 
-Configure as permissões de execução da função Lambda para ter acesso ao DynamoDB.
-
-## 💻 Uso
-
-### Iniciar o Servidor HTTP
+### Opção 2: Com Docker Compose (DynamoDB Local)
 
 ```bash
+# Inicie os serviços
+docker-compose -f extra/docker-compose.yml up -d
+
+# Execute a aplicação
+go run main.go
+```
+
+### Opção 3: Build e Executar Binário
+
+```bash
+# Build
+go build -o api .
+
+# Execute
 ./api
 ```
 
-O servidor iniciará na porta 8080 (ou conforme `API_PORT`).
-
-```
-starting server on :8080
-```
-
-### Endpoints Disponíveis
-
-#### Health Check
+### Opção 4: AWS Lambda
 
 ```bash
+# Build para Lambda
+GOOS=linux GOARCH=arm64 go build -o bootstrap .
+
+# Zipar
+zip lambda.zip bootstrap
+
+# Deploy via AWS CLI
+aws lambda create-function \
+  --function-name dynamodb-api \
+  --runtime provided.al2 \
+  --role arn:aws:iam::ACCOUNT:role/ROLE \
+  --handler bootstrap \
+  --zip-file fileb://lambda.zip
+```
+
+## 📡 Endpoints da API
+
+### 1. Health Check
+
+Verifica se a aplicação está ativa.
+
+```
 GET /health
 ```
 
-**Resposta:**
-```
-200 OK
-OK
-```
+**Resposta:** `200 OK`
 
-#### Criar Evento
+---
 
-```bash
+### 2. Criar Evento
+
+Cria um novo evento.
+
+```
 POST /eventos
 Content-Type: application/json
+```
 
+**Request Body:**
+```json
 {
-  "date": "2024-01-15T10:30:00Z",
+  "date": "2024-01-29T10:30:00Z",
   "statusCode": 200,
-  "statusMessage": "Success",
+  "statusMessage": "Operação bem-sucedida",
   "metadata": {
-    "userId": "123",
-    "action": "create"
+    "user_id": "123",
+    "request_id": "abc-def-ghi"
   }
 }
 ```
 
-**Respostas:**
+**Response (201 Created):**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "date": "2024-01-29T10:30:00Z",
+  "statusCode": 200,
+  "statusMessage": "Operação bem-sucedida",
+  "expiration": 1706633400,
+  "metadata": {
+    "user_id": "123",
+    "request_id": "abc-def-ghi"
+  }
+}
+```
 
-- `201 Created`: Evento criado com sucesso
-- `400 Bad Request`: Dados inválidos ou data/statusCode ausentes
-- `500 Internal Server Error`: Erro ao salvar o evento
+---
 
-#### Obter Evento
+### 3. Obter Evento
 
-```bash
+Recupera um evento específico pelo ID.
+
+```
 GET /eventos/{id}
 ```
 
-**Exemplos:**
+**Parâmetros:**
+- `id` (path): UUID do evento
 
-```bash
-curl http://localhost:8080/eventos/550e8400-e29b-41d4-a716-446655440000
-```
-
-**Respostas:**
-
-- `200 OK`: Evento encontrado
-- `404 Not Found`: Evento não existe
-- `400 Bad Request`: ID ausente ou inválido
-
-#### Atualizar Evento
-
-```bash
-PUT /eventos/{id}
-Content-Type: application/json
-
+**Response (200 OK):**
+```json
 {
-  "date": "2024-01-15T10:30:00Z",
-  "statusCode": 201,
-  "statusMessage": "Updated",
-  "metadata": {}
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "date": "2024-01-29T10:30:00Z",
+  "statusCode": 200,
+  "statusMessage": "Operação bem-sucedida",
+  "expiration": 1706633400,
+  "metadata": {
+    "user_id": "123",
+    "request_id": "abc-def-ghi"
+  }
 }
 ```
 
-**Respostas:**
+---
 
-- `201 Created`: Evento atualizado com sucesso
-- `400 Bad Request`: Dados inválidos ou ID ausente
-- `500 Internal Server Error`: Erro ao salvar o evento
+### 4. Atualizar Evento
 
-#### Deletar Evento
+Atualiza um evento existente.
 
-```bash
+```
+PUT /eventos/{id}
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "date": "2024-01-29T11:00:00Z",
+  "statusCode": 201,
+  "statusMessage": "Criado com sucesso",
+  "metadata": {
+    "user_id": "123",
+    "request_id": "xyz-123"
+  }
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "date": "2024-01-29T11:00:00Z",
+  "statusCode": 201,
+  "statusMessage": "Criado com sucesso",
+  "expiration": 1706636800,
+  "metadata": {
+    "user_id": "123",
+    "request_id": "xyz-123"
+  }
+}
+```
+
+---
+
+### 5. Deletar Evento
+
+Remove um evento específico.
+
+```
 DELETE /eventos/{id}
 ```
 
-**Exemplos:**
-
-```bash
-curl -X DELETE http://localhost:8080/eventos/550e8400-e29b-41d4-a716-446655440000
+**Response (200 OK):**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "date": "2024-01-29T10:30:00Z",
+  "statusCode": 200,
+  "statusMessage": "Operação bem-sucedida",
+  "expiration": 1706633400,
+  "metadata": {
+    "user_id": "123"
+  }
+}
 ```
 
-**Respostas:**
+---
 
-- `204 No Content`: Evento deletado com sucesso
-- `404 Not Found`: Evento não existe
-- `400 Bad Request`: ID ausente ou inválido
+### 6. Listar Eventos (Find)
 
-### Exemplo de Resposta de Erro
+Lista eventos filtrando por data e status code.
+
+```
+GET /eventos?startDate=2024-01-29T00:00:00Z&endDate=2024-01-30T00:00:00Z&statusCode=200
+```
+
+**Parâmetros Query:**
+- `startDate` (obrigatório): Data inicial (RFC3339)
+- `endDate` (obrigatório): Data final (RFC3339)
+- `statusCode` (obrigatório): Código HTTP para filtrar
+
+**Response (200 OK):**
+```json
+{
+  "items": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "date": "2024-01-29T10:30:00Z",
+      "statusCode": 200,
+      "statusMessage": "OK",
+      "expiration": 1706633400
+    }
+  ],
+  "total": 1
+}
+```
+
+---
+
+## 📝 Exemplos com cURL
+
+### Pré-requisitos
+
+Certifique-se de que a API está rodando em `http://localhost:7000`
+
+### 1. Health Check
+
+```bash
+curl -X GET http://localhost:7000/health
+```
+
+**Saída esperada:**
+```
+OK
+```
+
+---
+
+### 2. Criar um Evento
+
+```bash
+curl -X POST http://localhost:7000/eventos \
+  -H "Content-Type: application/json" \
+  -d '{
+    "date": "2024-01-29T10:30:00Z",
+    "statusCode": 200,
+    "statusMessage": "Operação bem-sucedida",
+    "metadata": {
+      "user_id": "user-123",
+      "request_id": "req-abc-def"
+    }
+  }'
+```
+
+**Resposta:**
+```json
+{
+  "id": "8f5c9e1a-2b3c-4d5e-6f7g-8h9i0j1k2l3m",
+  "date": "2024-01-29T10:30:00Z",
+  "statusCode": 200,
+  "statusMessage": "Operação bem-sucedida",
+  "expiration": 1706628600,
+  "metadata": {
+    "user_id": "user-123",
+    "request_id": "req-abc-def"
+  }
+}
+```
+
+💡 **Salvar o ID para os próximos exemplos:**
+
+```bash
+EVENT_ID="8f5c9e1a-2b3c-4d5e-6f7g-8h9i0j1k2l3m"
+```
+
+---
+
+### 3. Obter um Evento
+
+```bash
+curl -X GET http://localhost:7000/eventos/$EVENT_ID
+```
+
+**Resposta:**
+```json
+{
+  "id": "8f5c9e1a-2b3c-4d5e-6f7g-8h9i0j1k2l3m",
+  "date": "2024-01-29T10:30:00Z",
+  "statusCode": 200,
+  "statusMessage": "Operação bem-sucedida",
+  "expiration": 1706628600,
+  "metadata": {
+    "user_id": "user-123",
+    "request_id": "req-abc-def"
+  }
+}
+```
+
+---
+
+### 4. Listar Eventos por Período
+
+```bash
+curl -X GET "http://localhost:7000/eventos?startDate=2024-01-28T00:00:00Z&endDate=2024-01-30T23:59:59Z&statusCode=200"
+```
+
+**Resposta:**
+```json
+{
+  "items": [
+    {
+      "id": "8f5c9e1a-2b3c-4d5e-6f7g-8h9i0j1k2l3m",
+      "date": "2024-01-29T10:30:00Z",
+      "statusCode": 200,
+      "statusMessage": "Operação bem-sucedida",
+      "expiration": 1706628600
+    }
+  ],
+  "total": 1
+}
+```
+
+---
+
+### 5. Atualizar um Evento
+
+```bash
+curl -X PUT http://localhost:7000/eventos/$EVENT_ID \
+  -H "Content-Type: application/json" \
+  -d '{
+    "date": "2024-01-29T11:45:00Z",
+    "statusCode": 201,
+    "statusMessage": "Criado com sucesso",
+    "metadata": {
+      "user_id": "user-456",
+      "updated_by": "admin",
+      "request_id": "req-xyz-789"
+    }
+  }'
+```
+
+**Resposta:**
+```json
+{
+  "id": "8f5c9e1a-2b3c-4d5e-6f7g-8h9i0j1k2l3m",
+  "date": "2024-01-29T11:45:00Z",
+  "statusCode": 201,
+  "statusMessage": "Criado com sucesso",
+  "expiration": 1706632200,
+  "metadata": {
+    "user_id": "user-456",
+    "updated_by": "admin",
+    "request_id": "req-xyz-789"
+  }
+}
+```
+
+---
+
+### 6. Deletar um Evento
+
+```bash
+curl -X DELETE http://localhost:7000/eventos/$EVENT_ID
+```
+
+**Resposta:**
+```json
+{
+  "id": "8f5c9e1a-2b3c-4d5e-6f7g-8h9i0j1k2l3m",
+  "date": "2024-01-29T11:45:00Z",
+  "statusCode": 201,
+  "statusMessage": "Criado com sucesso",
+  "expiration": 1706632200,
+  "metadata": {
+    "user_id": "user-456",
+    "updated_by": "admin"
+  }
+}
+```
+
+---
+
+### 7. Múltiplas Operações em Sequência
+
+```bash
+#!/bin/bash
+
+API="http://localhost:7000"
+
+# 1. Health Check
+echo "=== Health Check ==="
+curl -s $API/health
+echo -e "\n"
+
+# 2. Criar 3 eventos
+echo "=== Criando Eventos ==="
+IDS=()
+for i in {1..3}; do
+  RESPONSE=$(curl -s -X POST $API/eventos \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"date\": \"2024-01-29T$(printf '%02d' $((9+i))):00:00Z\",
+      \"statusCode\": $((200 + i*50)),
+      \"statusMessage\": \"Event $i\",
+      \"metadata\": {
+        \"sequence\": \"$i\",
+        \"type\": \"batch\"
+      }
+    }")
+  
+  ID=$(echo $RESPONSE | jq -r '.id')
+  IDS+=($ID)
+  echo "Evento $i criado: $ID"
+done
+echo ""
+
+# 3. Listar todos
+echo "=== Listando Eventos ==="
+curl -s -X GET "$API/eventos?startDate=2024-01-28T00:00:00Z&endDate=2024-01-30T23:59:59Z&statusCode=200" | jq '.'
+echo ""
+
+# 4. Atualizar primeiro evento
+echo "=== Atualizando Evento ==="
+curl -s -X PUT $API/eventos/${IDS[0]} \
+  -H "Content-Type: application/json" \
+  -d '{
+    "date": "2024-01-29T15:30:00Z",
+    "statusCode": 200,
+    "statusMessage": "Updated",
+    "metadata": {"status": "modified"}
+  }' | jq '.'
+echo ""
+
+# 5. Deletar segundo evento
+echo "=== Deletando Evento ==="
+curl -s -X DELETE $API/eventos/${IDS[1]} | jq '.'
+echo ""
+
+# 6. Listar novamente
+echo "=== Listando Após Deleção ==="
+curl -s -X GET "$API/eventos?startDate=2024-01-28T00:00:00Z&endDate=2024-01-30T23:59:59Z&statusCode=250" | jq '.'
+```
+
+---
+
+## 📂 Estrutura do Projeto
+
+```
+dynamodb-api/
+├── main.go                 # Entrada principal da aplicação
+├── config.go              # Gerenciamento de configuração
+├── config.json            # Arquivo de configuração
+├── otel.go                # Setup OpenTelemetry
+│
+├── models/                # Modelos de dados
+│   ├── event.go          # Estrutura do Event
+│   ├── event_test.go     # Testes do Event
+│   ├── error_response.go # Estrutura de erro
+│   └── paginated_response.go # Resposta paginada
+│
+├── handlers/              # Handlers de requisição
+│   ├── http_handler.go   # Implementação HTTP
+│   ├── lambda_handler.go # Implementação Lambda
+│   └── *_test.go         # Testes unitários
+│
+├── repositories/          # Implementações de armazenamento
+│   ├── dynamodb.go       # Cliente DynamoDB
+│   ├── memorydb.go       # Armazenamento em memória
+│   └── *_test.go         # Testes unitários
+│
+├── interfaces/            # Interfaces do projeto
+│   ├── dynamodb_client.go
+│   ├── log.go
+│   └── repository.go
+│
+├── logs/                  # Sistema de logging
+│   ├── stdout.go         # Logger padrão
+│   └── stdout_test.go    # Testes
+│
+├── apis/                  # API HTTP e Lambda
+│   ├── http_api.go       # Configuração HTTP
+│   ├── lambda_api.go     # Configuração Lambda
+│   └── *_test.go         # Testes
+│
+├── extra/                 # Recursos adicionais
+│   ├── docker-compose.yml
+│   ├── otel-collector.yaml
+│   └── prometheus.yaml
+│
+├── go.mod                # Dependências Go
+├── go.sum                # Checksum das dependências
+└── README.md             # Este arquivo
+```
+
+---
+
+## ⚙️ Configuração
+
+### Arquivo `config.json`
 
 ```json
 {
-  "type": "about:blank",
-  "title": "Bad Request",
-  "status": 400,
-  "detail": "Missing event ID in URL",
-  "instance": "/eventos/",
-  "code": "INVALID_REQUEST"
+  "address": "0.0.0.0",
+  "port": 7000,
+  "record_ttl_minutes": 1440
 }
 ```
+
+**Parâmetros:**
+
+| Parâmetro | Tipo | Padrão | Descrição |
+|-----------|------|--------|-----------|
+| `address` | string | `0.0.0.0` | Endereço para bind do servidor |
+| `port` | int | `7000` | Porta do servidor HTTP |
+| `record_ttl_minutes` | int64 | `1440` | TTL dos registros em minutos |
+
+### Variáveis de Ambiente
+
+```bash
+# AWS Configuration
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=xxxxx
+AWS_SECRET_ACCESS_KEY=xxxxx
+
+# DynamoDB Local
+AWS_ENDPOINT_URL_DYNAMODB=http://localhost:8000
+
+# OpenTelemetry
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+OTEL_SDK_DISABLED=false
+```
+
+---
+
+## 📊 Telemetria e Observabilidade
+
+### OpenTelemetry
+
+A aplicação exporta **traces** e **métricas** automaticamente.
+
+**Métricas Coletadas:**
+- `post.requests` - Número de requisições POST
+- `get.requests` - Número de requisições GET
+- `put.requests` - Número de requisições PUT
+- `delete.requests` - Número de requisições DELETE
+- `find.requests` - Número de requisições FIND
+
+**Traces:**
+- Cada operação de repositório é rastreada
+- Latência de cada operação é medida
+- Erros são registrados com contexto
+
+### Docker Compose para Observabilidade
+
+```bash
+# Inicie os serviços de observabilidade
+docker-compose -f extra/docker-compose.yml up -d
+
+# Acesse o Jaeger
+open http://localhost:16686
+
+# Acesse o Prometheus
+open http://localhost:9090
+```
+
+### Exemplo de Consulta Prometheus
+
+```promql
+# Taxa de requisições por segundo
+rate(post.requests[1m])
+
+# Requisições por tipo
+sum by(method) (rate(requests[5m]))
+
+# Erros por tipo
+rate(errors_total[5m])
+```
+
+---
 
 ## 🧪 Testes
 
@@ -289,338 +789,155 @@ curl -X DELETE http://localhost:8080/eventos/550e8400-e29b-41d4-a716-44665544000
 go test ./...
 ```
 
-### Executar Testes de um Pacote Específico
+### Testes com Cobertura
 
 ```bash
-# Testes dos handlers
-go test -v ./handlers
-
-# Testes dos repositórios
-go test -v ./repositories
-
-# Testes dos modelos
-go test -v ./models
-
-# Testes das APIs
-go test -v ./apis
+go test ./... -cover
 ```
 
-### Executar com Verbosidade
+### Relatório Detalhado de Cobertura
 
 ```bash
-go test -v ./...
+go test ./... -coverprofile=coverage.out
+go tool cover -html=coverage.out
 ```
-
-### Executar Teste Específico
-
-```bash
-go test -run TestDynamoDBCreateSuccess ./repositories
-```
-
-### Testes com Timeout
-
-```bash
-go test -timeout 30s ./...
-```
-
-## 📊 Cobertura de Código
-
-### Gerar Relatório de Cobertura
-
-```bash
-# Gerar arquivo de cobertura
-go test -coverprofile=coverage.out ./...
-
-# Exibir cobertura em cada função
-go tool cover -func=coverage.out
-
-# Gerar relatório HTML
-go tool cover -html=coverage.out -o coverage.html
-```
-
-### Cobertura Atual por Pacote
-
-| Pacote | Cobertura | Status |
-|--------|-----------|--------|
-| `api/models` | 100.0% | ✅ Completo |
-| `api/repositories` | 95.1% | ✅ Excelente |
-| `api/handlers` | 88.3% | ✅ Muito Bom |
-| `api/apis` | 21.1% | ⚠️ Necessário melhorar |
-| `api/interfaces` | N/A | - |
-
-**Nota**: A cobertura do pacote `apis` é limitada porque a função `Run()` inicia um servidor HTTP que não pode ser testado facilmente em testes unitários.
 
 ### Testes por Pacote
 
-#### Models (100% - 2 arquivos)
-- Event: Validação de data e status code
-- ErrorResponse: Estrutura RFC 9457
-
-#### Repositories (95.1% - 21+ testes)
-- **DynamoDB** (92.3% - 18 testes):
-  - Create, Save, Get, Delete
-  - FindByDateAndReturnCode
-  - Casos de erro e edge cases
-  
-- **MemoryDB** (100% - 14 testes):
-  - Operações CRUD completas
-  - Validação de expiração TTL
-  - Casos de erro
-
-#### Handlers (88.3% - 42+ testes)
-- **HTTP** (88% - 24 testes):
-  - Todos os métodos HTTP (GET, POST, PUT, DELETE)
-  - Health check
-  - Validação de entrada
-  - Tratamento de erros
-  
-- **Lambda** (88% - 18+ testes):
-  - Todos os métodos HTTP
-  - Routing
-  - Serialização JSON
-  - Tratamento de erros
-
-#### APIs (21.1%)
-- Configuração do servidor HTTP
-- Injeção de dependências
-
-## 🚢 Deploy
-
-### Deploy Local
-
 ```bash
-# Compilar
-go build -o api
+# Handlers
+go test ./handlers -v
 
-# Executar
-./api
+# Repositories
+go test ./repositories -v
 
-# Com porta customizada
-API_PORT=9000 ./api
+# Models
+go test ./models -v
+
+# Logs
+go test ./logs -v
 ```
 
-### Deploy em Docker
-
-```dockerfile
-FROM golang:1.25.5-alpine AS builder
-WORKDIR /app
-COPY . .
-RUN go mod download
-RUN CGO_ENABLED=0 GOOS=linux go build -o api
-
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates
-WORKDIR /root/
-COPY --from=builder /app/api .
-EXPOSE 8080
-CMD ["./api"]
-```
-
-**Build e run:**
-
-```bash
-docker build -t dynamodb-api .
-docker run -p 8080:8080 dynamodb-api
-```
-
-### Deploy em AWS Lambda
-
-1. Compile o binário para Linux:
-
-```bash
-GOOS=linux GOARCH=amd64 go build -o bootstrap ./main.go
-zip lambda-function.zip bootstrap
-```
-
-2. Crie uma função Lambda com o binário compilado
-3. Configure a variável de ambiente `AWS_REGION`
-4. Configure IAM Role com permissões de DynamoDB
-
-### Deploy em AWS ECS
-
-1. Build a imagem Docker
-2. Faça push para ECR
-3. Crie uma task definition
-4. Crie um serviço ECS
-
-## 🔍 Modelos de Dados
-
-### Event
-
-```go
-type Event struct {
-    Id            string            `json:"id"`
-    Date          time.Time         `json:"date"`
-    StatusCode    int               `json:"statusCode"`
-    StatusMessage string            `json:"statusMessage"`
-    Metadata      map[string]string `json:"metadata,omitempty"`
-    Expiration    int64             `json:"-"`
-}
-```
-
-**Validação:**
-- `Date`: Obrigatório, não pode ser zero
-- `StatusCode`: Obrigatório, deve ser >= 0
-
-### ErrorResponse (RFC 9457)
-
-```go
-type ErrorResponse struct {
-    Type     string `json:"type"`
-    Status   int    `json:"status"`
-    Title    string `json:"title"`
-    Detail   string `json:"detail"`
-    Instance string `json:"instance"`
-    Code     string `json:"code,omitempty"`
-}
-```
-
-## 🔐 Segurança
-
-### Boas Práticas Implementadas
-
-- ✅ Validação de entrada em todos os endpoints
-- ✅ Headers de segurança padrão
-- ✅ Timeouts de requisição (30s read/write, 60s idle)
-- ✅ Limite de tamanho de header (1MB)
-- ✅ Autenticação via AWS IAM (Lambda)
-- ✅ Geração de IDs com UUID v4
-
-### Recomendações
-
-1. **Autenticação**: Adicione API Gateway com autenticação
-2. **CORS**: Configure CORS se necessário
-3. **Rate Limiting**: Implemente rate limiting
-4. **HTTPS**: Use HTTPS em produção
-5. **WAF**: Considere usar AWS WAF
-
-## 🐛 Troubleshooting
-
-### Erro: "connection refused"
-
-**Causa**: Servidor não está rodando na porta configurada
-
-**Solução**:
-```bash
-# Verificar se a porta está em uso
-lsof -i :8080
-
-# Usar outra porta
-API_PORT=9000 ./api
-```
-
-### Erro: "NoCredentialsError"
-
-**Causa**: Credenciais AWS não configuradas
-
-**Solução**:
-```bash
-# Configure credenciais
-aws configure
-
-# Ou use variáveis de ambiente
-export AWS_ACCESS_KEY_ID=...
-export AWS_SECRET_ACCESS_KEY=...
-```
-
-### Erro: "ResourceNotFoundException"
-
-**Causa**: Tabela DynamoDB não existe
-
-**Solução**:
-```bash
-# A tabela será criada automaticamente na primeira execução
-# Se não funcionar, crie manualmente via AWS Console
-```
-
-### Testes falhando
-
-**Causa**: Dependências não instaladas
-
-**Solução**:
-```bash
-go mod tidy
-go mod download
-go test ./...
-```
-
-## 📈 Performance
-
-### Benchmarks
-
-Para rodar benchmarks (a adicionar):
-
-```bash
-go test -bench=. ./...
-```
-
-### Otimizações
-
-- Usar MemoryDB para desenvolvimento (em memória)
-- Usar DynamoDB para produção (escalável)
-- Connection pooling automático do AWS SDK
-- Timeouts configuráveis
-
-## 📝 Logging
-
-O projeto usa o package `log` padrão do Go. Logs são enviados para stdout:
-
-```
-starting server on :8080
-```
-
-Para melhorar o logging, considere usar:
-- `github.com/sirupsen/logrus`
-- `go.uber.org/zap`
-- AWS CloudWatch Logs
-
-## 🤝 Contribuindo
-
-1. Fork o projeto
-2. Crie uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
-3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
-4. Push para a branch (`git push origin feature/AmazingFeature`)
-5. Abra um Pull Request
-
-### Checklist para Contribuições
-
-- [ ] Testes unitários adicionados
-- [ ] Cobertura de código mantida > 90%
-- [ ] `go fmt` executado
-- [ ] `go vet` sem erros
-- [ ] README atualizado se necessário
-
-## 📄 Licença
-
-Este projeto está licenciado sob a MIT License - veja o arquivo LICENSE para detalhes.
-
-## 📞 Suporte
-
-Para reportar problemas ou sugerir melhorias, abra uma issue no repositório.
-
-## 🎓 Aprendizados e Boas Práticas
-
-Este projeto demonstra:
-
-1. **Arquitetura Limpa**: Separação clara entre camadas (handlers, repositories, models)
-2. **Interface Segregation**: Uso de interfaces para desacoplamento
-3. **Dependency Injection**: Injeção de dependências para testabilidade
-4. **Testes Abrangentes**: Unit tests com mocks e table-driven tests
-5. **Error Handling**: Tratamento robusto de erros
-6. **RFC Compliance**: Seguindo padrões web (RFC 9457)
-7. **Multi-deployment**: Flexibilidade entre HTTP e Lambda
-8. **Configuration Management**: Configuração via variáveis de ambiente
-
-## 🔗 Recursos Úteis
-
-- [Go Documentation](https://golang.org/doc/)
-- [AWS SDK for Go v2](https://aws.github.io/aws-sdk-go-v2/)
-- [AWS Lambda Go](https://github.com/aws/aws-lambda-go)
-- [RFC 9457 - Problem Details](https://www.rfc-editor.org/rfc/rfc9457)
-- [DynamoDB Documentation](https://docs.aws.amazon.com/dynamodb/)
+**Cobertura de Código:**
+- ✅ models: 100%
+- ✅ logs: 77.8%
+- ✅ handlers: 74.7%
+- ✅ repositories: 42%+
+- ✅ apis: 19%+
 
 ---
 
-**Versão**: 1.0.0  
-**Última atualização**: Janeiro 2026  
-**Linguagem**: Go 1.25.5
+## 🔄 Fluxo de Operações
+
+### Criar Evento (POST)
+
+```mermaid
+sequenceDiagram
+    Client->>HTTP: POST /eventos (JSON)
+    HTTP->>Handler: HandleRequest
+    Handler->>Handler: Validate JSON
+    Handler->>Handler: Generate UUID
+    Handler->>Handler: Calculate Expiration
+    Handler->>Repo: Save(Event)
+    Repo->>DB: PutItem (DynamoDB)
+    DB-->>Repo: OK
+    Repo-->>Handler: Success
+    Handler->>OTel: Add Metric
+    Handler-->>HTTP: 201 Created
+    HTTP-->>Client: JSON Response
+```
+
+### Buscar Eventos (GET /eventos)
+
+```mermaid
+sequenceDiagram
+    Client->>HTTP: GET /eventos?dates&code
+    HTTP->>Handler: HandleFind
+    Handler->>Handler: Parse Query Params
+    Handler->>Handler: Validate Dates
+    Handler->>Repo: FindByDateAndReturnCode()
+    Repo->>DB: Query (DynamoDB)
+    DB-->>Repo: Items
+    Repo->>Handler: Events Array
+    Handler->>Handler: Create Paginated Response
+    Handler->>OTel: Record Metric
+    Handler-->>HTTP: 200 OK
+    HTTP-->>Client: JSON Array
+```
+
+---
+
+## 🐛 Troubleshooting
+
+### A API não inicia
+
+```bash
+# Verifique se a porta 7000 está em uso
+lsof -i :7000
+
+# Use uma porta diferente (edite config.json)
+# ou mate o processo
+kill -9 <PID>
+```
+
+### Erro ao conectar no DynamoDB
+
+```bash
+# Verifique as credenciais AWS
+aws sts get-caller-identity
+
+# Para DynamoDB local, inicie o Docker
+docker-compose -f extra/docker-compose.yml up dynamodb-local
+```
+
+### Logs não aparecem
+
+```bash
+# Verifique se OTEL está habilitado
+export OTEL_SDK_DISABLED=false
+
+# Configure o endpoint do collector
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+```
+
+---
+
+## 📋 Checklist de Deploy
+
+- [ ] Arquivo `config.json` configurado
+- [ ] Credenciais AWS configuradas
+- [ ] Tabela DynamoDB criada (automático na primeira execução)
+- [ ] TTL configurado corretamente
+- [ ] OpenTelemetry collector iniciado (se usar observabilidade)
+- [ ] Portas 7000 e 4317 abertas
+- [ ] Testes unitários passando
+- [ ] Cobertura de código validada
+
+---
+
+## 📚 Referências
+
+- [AWS SDK for Go v2](https://aws.github.io/aws-sdk-go-v2/)
+- [OpenTelemetry Go](https://opentelemetry.io/docs/instrumentation/go/)
+- [Go HTTP Package](https://pkg.go.dev/net/http)
+- [Lambda for Go](https://github.com/aws/aws-lambda-go)
+
+---
+
+## 📝 Licença
+
+Este projeto é fornecido como-está para fins educacionais e de demonstração.
+
+---
+
+## 📞 Suporte
+
+Para dúvidas ou problemas, consulte:
+1. Os testes unitários em `*_test.go`
+2. Os exemplos de curl neste README
+3. Os comentários no código-fonte
+4. Os logs da aplicação (via OTEL)
+
+---
+
+**Última atualização:** Janeiro 2026

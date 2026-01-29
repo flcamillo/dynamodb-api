@@ -1,22 +1,41 @@
 package repositories
 
 import (
+	"api/interfaces"
 	"api/models"
 	"context"
 	"time"
+
+	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// Define a configuração do repositório de memória.
+type MemoryDBConfig struct {
+	// log de aplicação
+	Log interfaces.Log
+	// tempo de expiração dos registros
+	TTL time.Duration
+}
 
 // Define a estrutura do repositório de memória.
 type MemoryDB struct {
-	db  []*models.Event
-	ttl time.Duration
+	// banco de dados em memória
+	db map[string]*models.Event
+	// configuração do repositório
+	config *MemoryDBConfig
+	// configura o tracer
+	tracer trace.Tracer
 }
 
 // Cria uma nova instância do repositório de memória.
-func NewMemoryDB(ttl time.Duration) *MemoryDB {
+func NewMemoryDB(config *MemoryDBConfig) *MemoryDB {
 	return &MemoryDB{
-		db:  make([]*models.Event, 0),
-		ttl: ttl,
+		db:     make(map[string]*models.Event),
+		config: config,
+		tracer: otel.Tracer("memorydb.repository"),
 	}
 }
 
@@ -28,52 +47,73 @@ func (p *MemoryDB) Create(ctx context.Context) error {
 // Salva o registro na memória.
 // Se já houver registro com o mesmo id, ele será substituído.
 func (p *MemoryDB) Save(ctx context.Context, event *models.Event) error {
-	if event.Expiration == 0 && p.ttl > 0 {
-		event.Expiration = time.Now().Add(p.ttl).Unix()
+	ctx, span := p.tracer.Start(ctx, "save", trace.WithAttributes(
+		attribute.String("id", event.Id)),
+	)
+	defer span.End()
+	if event.Expiration == 0 && p.config.TTL > 0 {
+		event.Expiration = time.Now().Add(p.config.TTL).Unix()
 	}
-	for k, v := range p.db {
-		if v.Id == event.Id {
-			p.db[k] = event
-			return nil
-		}
+	if event.Id == "" {
+		event.Id = uuid.New().String()
 	}
-	p.db = append(p.db, event)
+	p.db[event.Id] = event
 	return nil
 }
 
 // Deleta o registro da memória pelo id.
 func (p *MemoryDB) Delete(ctx context.Context, id string) (event *models.Event, err error) {
-	for k, v := range p.db {
-		if v.Id == id {
-			p.db = append(p.db[:k], p.db[k+1:]...)
-			return v, nil
-		}
+	ctx, span := p.tracer.Start(ctx, "delete", trace.WithAttributes(
+		attribute.String("id", id)),
+	)
+	defer span.End()
+	event, ok := p.db[id]
+	if !ok {
+		span.AddEvent("record not found")
+		return nil, nil
 	}
-	return nil, nil
+	delete(p.db, id)
+	return event, nil
 }
 
 // Recupera o registro da memória pelo id.
 func (p *MemoryDB) Get(ctx context.Context, id string) (event *models.Event, err error) {
-	for _, v := range p.db {
-		if v.Expiration != 0 && time.Unix(v.Expiration, 0).Before(time.Now()) {
-			continue
-		}
-		if v.Id == id {
-			return v, nil
-		}
+	ctx, span := p.tracer.Start(ctx, "get", trace.WithAttributes(
+		attribute.String("id", id)),
+	)
+	defer span.End()
+	event, ok := p.db[id]
+	if !ok {
+		span.AddEvent("record not found")
+		return nil, nil
 	}
-	return nil, nil
+	if event.Expiration != 0 && time.Unix(event.Expiration, 0).Before(time.Now()) {
+		delete(p.db, id)
+		return nil, nil
+	}
+	return event, nil
 }
 
 // Encontra registros pela data e código de retorno.
 func (p *MemoryDB) FindByDateAndReturnCode(ctx context.Context, from time.Time, to time.Time, statusCode int) (events []*models.Event, err error) {
-	for _, v := range p.db {
+	ctx, span := p.tracer.Start(ctx, "find-by-date-and-return-code", trace.WithAttributes(
+		attribute.String("from", from.Format(time.RFC3339)),
+		attribute.String("to", from.Format(time.RFC3339)),
+		attribute.Int("statusCode", statusCode),
+	))
+	defer span.End()
+	expired := make([]string, 0)
+	for k, v := range p.db {
 		if v.Expiration != 0 && time.Unix(v.Expiration, 0).Before(time.Now()) {
+			expired = append(expired, k)
 			continue
 		}
 		if (v.Date.After(from) || v.Date.Equal(from)) && (v.Date.Before(to) || v.Date.Equal(to)) && v.StatusCode == statusCode {
 			events = append(events, v)
 		}
+	}
+	for _, id := range expired {
+		delete(p.db, id)
 	}
 	return events, nil
 }
