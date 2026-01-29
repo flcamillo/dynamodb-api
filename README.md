@@ -25,7 +25,6 @@ Uma API RESTful robusta construída em Go para gerenciar eventos utilizando AWS 
 - ✅ **Validação de dados** robusta
 - ✅ **TTL (Time To Live)** para expiração automática de registros
 - ✅ **Suporte a metadata** customizável por evento
-- ✅ **Testes unitários** com 90%+ de cobertura
 
 ## 🏗️ Arquitetura
 
@@ -159,7 +158,7 @@ go get github.com/google/uuid
 ### 1. Clone o Repositório
 
 ```bash
-cd d:\Fabio\Go\src\dynamodb-api
+git clone https://github.com/flcamillo/dynamodb-api.git
 ```
 
 ### 2. Instale as Dependências
@@ -650,26 +649,26 @@ curl -s -X GET "$API/eventos?startDate=2024-01-28T00:00:00Z&endDate=2024-01-30T2
 
 ```
 dynamodb-api/
-├── main.go                 # Entrada principal da aplicação
+├── main.go                # Entrada principal da aplicação
 ├── config.go              # Gerenciamento de configuração
 ├── config.json            # Arquivo de configuração
 ├── otel.go                # Setup OpenTelemetry
 │
-├── models/                # Modelos de dados
-│   ├── event.go          # Estrutura do Event
-│   ├── event_test.go     # Testes do Event
-│   ├── error_response.go # Estrutura de erro
+├── models/                   # Modelos de dados
+│   ├── event.go              # Estrutura do Event
+│   ├── event_test.go         # Testes do Event
+│   ├── error_response.go     # Estrutura de erro
 │   └── paginated_response.go # Resposta paginada
 │
 ├── handlers/              # Handlers de requisição
-│   ├── http_handler.go   # Implementação HTTP
-│   ├── lambda_handler.go # Implementação Lambda
-│   └── *_test.go         # Testes unitários
+│   ├── http_handler.go    # Implementação HTTP
+│   ├── lambda_handler.go  # Implementação Lambda
+│   └── *_test.go          # Testes unitários
 │
 ├── repositories/          # Implementações de armazenamento
-│   ├── dynamodb.go       # Cliente DynamoDB
-│   ├── memorydb.go       # Armazenamento em memória
-│   └── *_test.go         # Testes unitários
+│   ├── dynamodb.go        # Cliente DynamoDB
+│   ├── memorydb.go        # Armazenamento em memória
+│   └── *_test.go          # Testes unitários
 │
 ├── interfaces/            # Interfaces do projeto
 │   ├── dynamodb_client.go
@@ -677,22 +676,22 @@ dynamodb-api/
 │   └── repository.go
 │
 ├── logs/                  # Sistema de logging
-│   ├── stdout.go         # Logger padrão
-│   └── stdout_test.go    # Testes
+│   ├── stdout.go          # Logger padrão
+│   └── stdout_test.go     # Testes
 │
 ├── apis/                  # API HTTP e Lambda
-│   ├── http_api.go       # Configuração HTTP
-│   ├── lambda_api.go     # Configuração Lambda
-│   └── *_test.go         # Testes
+│   ├── http_api.go        # Configuração HTTP
+│   ├── lambda_api.go      # Configuração Lambda
+│   └── *_test.go          # Testes
 │
 ├── extra/                 # Recursos adicionais
 │   ├── docker-compose.yml
 │   ├── otel-collector.yaml
 │   └── prometheus.yaml
 │
-├── go.mod                # Dependências Go
-├── go.sum                # Checksum das dependências
-└── README.md             # Este arquivo
+├── go.mod                 # Dependências Go
+├── go.sum                 # Checksum das dependências
+└── README.md              # Este arquivo
 ```
 
 ---
@@ -817,13 +816,6 @@ go test ./models -v
 # Logs
 go test ./logs -v
 ```
-
-**Cobertura de Código:**
-- ✅ models: 100%
-- ✅ logs: 77.8%
-- ✅ handlers: 74.7%
-- ✅ repositories: 42%+
-- ✅ apis: 19%+
 
 ---
 
