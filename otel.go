@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -13,11 +14,12 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
 )
 
 // configura o SDK OpenTelemetry com exportadores OTLP para rastreamento, métricas e logs.
-func setupOTelSDK(ctx context.Context) (func(context.Context) error, error) {
+func setupOTelSDK(ctx context.Context, serviceName string) (func(context.Context) error, error) {
 	var shutdownFuncs []func(context.Context) error
 	var err error
 	// shutdown executa todas as funções de desligamento registradas.
@@ -33,11 +35,23 @@ func setupOTelSDK(ctx context.Context) (func(context.Context) error, error) {
 	handleErr := func(inErr error) {
 		err = errors.Join(inErr, shutdown(ctx))
 	}
+	// define o recurso
+	resources, err := resource.New(
+		ctx,
+		resource.WithAttributes(
+			attribute.String("service.name", serviceName),
+			attribute.String("library.language", "go"),
+		),
+	)
+	if err != nil {
+		handleErr(err)
+		return shutdown, err
+	}
 	// inicia o propagador global.
 	prop := newPropagator()
 	otel.SetTextMapPropagator(prop)
 	// configura o provedor de rastreamento.
-	tracerProvider, err := newTracerProvider(ctx)
+	tracerProvider, err := newTracerProvider(ctx, resources)
 	if err != nil {
 		handleErr(err)
 		return shutdown, err
@@ -45,7 +59,7 @@ func setupOTelSDK(ctx context.Context) (func(context.Context) error, error) {
 	shutdownFuncs = append(shutdownFuncs, tracerProvider.Shutdown)
 	otel.SetTracerProvider(tracerProvider)
 	// configura o provedor de métricas.
-	meterProvider, err := newMeterProvider(ctx)
+	meterProvider, err := newMeterProvider(ctx, resources)
 	if err != nil {
 		handleErr(err)
 		return shutdown, err
@@ -53,7 +67,7 @@ func setupOTelSDK(ctx context.Context) (func(context.Context) error, error) {
 	shutdownFuncs = append(shutdownFuncs, meterProvider.Shutdown)
 	otel.SetMeterProvider(meterProvider)
 	// configura o provedor de logs.
-	loggerProvider, err := newLoggerProvider(ctx)
+	loggerProvider, err := newLoggerProvider(ctx, resources)
 	if err != nil {
 		handleErr(err)
 		return shutdown, err
@@ -72,7 +86,7 @@ func newPropagator() propagation.TextMapPropagator {
 }
 
 // Cria um provedor de rastreamento com exportador OTLP via gRPC.
-func newTracerProvider(ctx context.Context) (*trace.TracerProvider, error) {
+func newTracerProvider(ctx context.Context, resource *resource.Resource) (*trace.TracerProvider, error) {
 	traceExporter, err := otlptracegrpc.New(ctx,
 		otlptracegrpc.WithEndpoint("localhost:4317"),
 		otlptracegrpc.WithInsecure(),
@@ -82,12 +96,13 @@ func newTracerProvider(ctx context.Context) (*trace.TracerProvider, error) {
 	}
 	tracerProvider := trace.NewTracerProvider(
 		trace.WithBatcher(traceExporter, trace.WithBatchTimeout(5*time.Second)),
+		trace.WithResource(resource),
 	)
 	return tracerProvider, nil
 }
 
 // Cria um provedor de métricas com exportador OTLP via gRPC.
-func newMeterProvider(ctx context.Context) (*metric.MeterProvider, error) {
+func newMeterProvider(ctx context.Context, resource *resource.Resource) (*metric.MeterProvider, error) {
 	metricExporter, err := otlpmetricgrpc.New(ctx,
 		otlpmetricgrpc.WithEndpoint("localhost:4317"),
 		otlpmetricgrpc.WithInsecure(),
@@ -97,12 +112,13 @@ func newMeterProvider(ctx context.Context) (*metric.MeterProvider, error) {
 	}
 	meterProvider := metric.NewMeterProvider(
 		metric.WithReader(metric.NewPeriodicReader(metricExporter, metric.WithInterval(5*time.Second))),
+		metric.WithResource(resource),
 	)
 	return meterProvider, nil
 }
 
 // Cria um provedor de logs com exportador OTLP via gRPC.
-func newLoggerProvider(ctx context.Context) (*log.LoggerProvider, error) {
+func newLoggerProvider(ctx context.Context, resource *resource.Resource) (*log.LoggerProvider, error) {
 	logExporter, err := otlploggrpc.New(ctx,
 		otlploggrpc.WithEndpoint("localhost:4317"),
 		otlploggrpc.WithInsecure(),
@@ -112,6 +128,7 @@ func newLoggerProvider(ctx context.Context) (*log.LoggerProvider, error) {
 	}
 	loggerProvider := log.NewLoggerProvider(
 		log.WithProcessor(log.NewBatchProcessor(logExporter)),
+		log.WithResource(resource),
 	)
 	return loggerProvider, nil
 }

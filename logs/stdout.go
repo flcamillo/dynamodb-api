@@ -30,29 +30,29 @@ func NewStdoutLog() *Stdout {
 }
 
 // Escreve uma mensagem de informação no log.
-func (p *Stdout) Info(format string, a ...any) {
+func (p *Stdout) Info(msg string, args ...any) {
 	if p.Level >= LevelInfo {
-		fmt.Printf("%s [INFO] %s\n", time.Now().Format(time.RFC3339), fmt.Sprintf(format, a...))
+		fmt.Printf("%s [INFO] %s\n", time.Now().Format(time.RFC3339), fmt.Sprint(msg, args))
 	}
 }
 
 // Escreve uma mensagem de erro no log.
-func (p *Stdout) Error(format string, a ...any) {
+func (p *Stdout) Error(msg string, args ...any) {
 	if p.Level >= LevelError {
-		fmt.Printf("%s [ERROR] %s\n", time.Now().Format(time.RFC3339), fmt.Sprintf(format, a...))
+		fmt.Printf("%s [ERROR] %s\n", time.Now().Format(time.RFC3339), fmt.Sprint(msg, args))
 	}
 }
 
 // Escreve uma mensagem de aviso no log.
-func (p *Stdout) Warn(format string, a ...any) {
+func (p *Stdout) Warn(msg string, args ...any) {
 	if p.Level >= LevelWarning {
-		fmt.Printf("%s [WARNING] %s\n", time.Now().Format(time.RFC3339), fmt.Sprintf(format, a...))
+		fmt.Printf("%s [WARNING] %s\n", time.Now().Format(time.RFC3339), fmt.Sprint(msg, args))
 	}
 }
 
 // Escreve uma mensagem de depuração no log.
-func (p *Stdout) Debug(format string, a ...any) {
+func (p *Stdout) Debug(msg string, args ...any) {
 	if p.Level >= LevelDebug {
-		fmt.Printf("%s [DEBUG] %s\n", time.Now().Format(time.RFC3339), fmt.Sprintf(format, a...))
+		fmt.Printf("%s [DEBUG] %s\n", time.Now().Format(time.RFC3339), fmt.Sprint(msg, args))
 	}
 }

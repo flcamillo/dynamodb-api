@@ -5,6 +5,7 @@ import (
 	"api/logs"
 	"api/repositories"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -37,9 +38,9 @@ func init() {
 		os.Exit(1)
 	}
 	// inicializa a telemetria
-	otelShutdown, err = setupOTelSDK(context.Background())
+	otelShutdown, err = setupOTelSDK(context.Background(), "dynamodb-api")
 	if err != nil {
-		log.Error("failed to setup OTel SDK: %s", err)
+		log.Error(fmt.Sprintf("failed to setup OTel SDK: %s", err))
 		os.Exit(1)
 	}
 	applicationConfig.Log = otelslog.NewLogger("api")
@@ -51,17 +52,17 @@ func init() {
 	}
 	applicationConfig.DynamoDBClient = dynamodb.NewFromConfig(sdkConfig)
 	// inicializa o repositório
-	// applicationConfig.Repository = repositories.NewMemoryDB(&repositories.MemoryDBConfig{
-	// 	TTL: time.Duration(applicationConfig.RecordTTLMinutes) * time.Minute,
-	// })
-	applicationConfig.Repository = repositories.NewDynamoDBRepository(&repositories.DynamoDBConfig{
-		Log:    applicationConfig.Log,
-		Client: applicationConfig.DynamoDBClient,
-		Table:  "eventos",
-		TTL:    time.Duration(applicationConfig.RecordTTLMinutes) * time.Minute,
+	applicationConfig.Repository = repositories.NewMemoryDB(&repositories.MemoryDBConfig{
+		TTL: time.Duration(applicationConfig.RecordTTLMinutes) * time.Minute,
 	})
+	// applicationConfig.Repository = repositories.NewDynamoDBRepository(&repositories.DynamoDBConfig{
+	// 	Log:    applicationConfig.Log,
+	// 	Client: applicationConfig.DynamoDBClient,
+	// 	Table:  "eventos",
+	// 	TTL:    time.Duration(applicationConfig.RecordTTLMinutes) * time.Minute,
+	// })
 	if err := applicationConfig.Repository.Create(context.Background()); err != nil {
-		log.Error("failed to create repository: %s", err)
+		log.Error(fmt.Sprintf("failed to create repository: %s", err))
 		os.Exit(1)
 	}
 }
@@ -79,6 +80,6 @@ func main() {
 	// encerra a telemetria
 	err := otelShutdown(context.Background())
 	if err != nil {
-		applicationConfig.Log.Error("failed to shutdown OTel SDK: %s", err)
+		applicationConfig.Log.Error(fmt.Sprintf("failed to shutdown OTel SDK: %s", err))
 	}
 }

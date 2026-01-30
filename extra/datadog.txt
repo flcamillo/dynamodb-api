@@ -1,0 +1,3 @@
+# se tiver conta no Datadog basta subir o agente com a configuração abaixo
+
+docker run -d --name dd-agent --pid=host -p 4317:4317 -p 4318:4318 -e DD_API_KEY=xxx -e DD_SITE=us5.datadoghq.com -e DD_APM_ENABLED=true -e HOST_PROC=/proc -e DD_LOGS_ENABLED=true -e DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT=0.0.0.0:4317 -e DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT=0.0.0.0:4318 -e DD_OTLP_CONFIG_LOGS_ENABLED=true -e DD_DOGSTATSD_NON_LOCAL_TRAFFIC=true -v /var/run/docker.sock:/var/run/docker.sock:ro -v /sys/fs/cgroup:/host/sys/fs/cgroup:ro -v /var/lib/docker/containers:/var/lib/docker/containers:ro gcr.io/datadoghq/agent:latest

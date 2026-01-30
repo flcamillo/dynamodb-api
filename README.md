@@ -859,7 +859,28 @@ sequenceDiagram
 
 ---
 
-## 🐛 Troubleshooting
+## � Observabilidade - Printscreens do Datadog
+
+Abaixo estão os printscreens da integração com Datadog, mostrando métricas, logs e tracing em ação:
+
+### Métricas
+![Datadog Metrics](./extra/datadog_metrics.png)
+
+### Logs
+![Datadog Logs 1](./extra/datadog_logs1.png)
+
+![Datadog Logs 2](./extra/datadog_logs2.png)
+
+### Tracing Distribuído
+![Datadog Trace 1](./extra/datadog_trace1.png)
+
+![Datadog Trace 2](./extra/datadog_trace2.png)
+
+![Datadog Trace 3](./extra/datadog_trace3.png)
+
+---
+
+## �🐛 Troubleshooting
 
 ### A API não inicia
 

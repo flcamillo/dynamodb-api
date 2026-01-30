@@ -43,7 +43,7 @@ func NewLambdaHandler(config *LambdaHandlerConfig) *LambdaHandler {
 
 // Identifica o método HTTP da requisição e direciona para o handler apropriado.
 func (p *LambdaHandler) HandleRequest(ctx context.Context, request events.APIGatewayV2HTTPRequest) (response events.APIGatewayV2HTTPResponse, err error) {
-	p.config.Log.Info("received {%s} request from {%s} on {%s} agent {%s}", request.RequestContext.HTTP.Method, request.RequestContext.HTTP.SourceIP, request.RequestContext.HTTP.Path, request.RequestContext.HTTP.UserAgent)
+	p.config.Log.Info(fmt.Sprintf("received {%s} request from {%s} on {%s} agent {%s}", request.RequestContext.HTTP.Method, request.RequestContext.HTTP.SourceIP, request.RequestContext.HTTP.Path, request.RequestContext.HTTP.UserAgent))
 	switch request.RequestContext.HTTP.Method {
 	case "GET":
 		return p.handleGet(ctx, request)

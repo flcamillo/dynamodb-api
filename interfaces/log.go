@@ -2,8 +2,8 @@ package interfaces
 
 // Define a interface para o log.
 type Log interface {
-	Info(format string, a ...any)
-	Error(format string, a ...any)
-	Warn(format string, a ...any)
-	Debug(format string, a ...any)
+	Info(msg string, args ...any)
+	Error(msg string, args ...any)
+	Warn(msg string, args ...any)
+	Debug(msg string, args ...any)
 }

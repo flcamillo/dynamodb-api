@@ -64,13 +64,13 @@ func (p *HttpApi) Run() {
 	p.server.Handler = otelhttp.NewHandler(router, "http.handler") // configura telemetria no handler
 	errChan := make(chan error, 1)
 	go func() {
-		p.config.Log.Info("starting server on: %s", p.server.Addr)
+		p.config.Log.Info(fmt.Sprintf("starting server on: %s", p.server.Addr))
 		errChan <- p.server.ListenAndServe()
 	}()
 	// aguarda o sinal de término
 	select {
 	case err := <-errChan:
-		p.config.Log.Error("server error: %v", err)
+		p.config.Log.Error(fmt.Sprintf("server error: %s", err))
 	case <-ctx.Done():
 		stop()
 	}

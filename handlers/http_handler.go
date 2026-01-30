@@ -78,7 +78,7 @@ func NewHttpHandler(config *HttpHandlerConfig) *HttpHandler {
 	if counter, err := meter.Int64Counter("find.requests",
 		metric.WithDescription("The number FIND executed"),
 		metric.WithUnit("{requests}")); err == nil {
-		h.deleteCounter = counter
+		h.findCounter = counter
 	} else {
 		panic(err)
 	}
@@ -88,7 +88,7 @@ func NewHttpHandler(config *HttpHandlerConfig) *HttpHandler {
 // Middleware para logar as requisições HTTP.
 func (p *HttpHandler) logHandlerFunc(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		p.config.Log.Info("received {%s} request from {%s} on {%s} agent {%s}", r.Method, r.RemoteAddr, r.URL.Path, r.UserAgent())
+		p.config.Log.Info(fmt.Sprintf("received {%s} request from {%s} on {%s} agent {%s}", r.Method, r.RemoteAddr, r.URL.Path, r.UserAgent()))
 		h(w, r)
 	}
 }
