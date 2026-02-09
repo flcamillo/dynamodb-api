@@ -2,10 +2,10 @@ package main
 
 import (
 	"api/apis"
-	"api/logs"
 	"api/repositories"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -25,29 +25,29 @@ var (
 // inicializa recursos essenciais da aplicação
 func init() {
 	// inicializa o log padrão
-	log := logs.NewStdoutLog()
+	slog.SetDefault(otelslog.NewLogger(os.Getenv("DD_SERVICE")))
 	// inicializa as configurações da aplicação
 	currentDirectory, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
-		log.Error("%s", err)
+		slog.Error(fmt.Sprintf("%s", err))
 		os.Exit(1)
 	}
 	applicationConfig, err = LoadConfig(filepath.Join(currentDirectory, "config.json"))
 	if err != nil {
-		log.Error("%s", err)
+		slog.Error(fmt.Sprintf("%s", err))
 		os.Exit(1)
 	}
 	// inicializa a telemetria
-	otelShutdown, err = setupOTelSDK(context.Background(), "dynamodb-api")
+	os.Environ()
+	otelShutdown, err = setupOTelSDK(context.Background())
 	if err != nil {
-		log.Error(fmt.Sprintf("failed to setup OTel SDK: %s", err))
+		slog.Error(fmt.Sprintf("failed to setup OTel SDK: %s", err))
 		os.Exit(1)
 	}
-	applicationConfig.Log = otelslog.NewLogger("api")
 	// inicializa o client do DynamoDB
 	sdkConfig, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
-		log.Error("%s", err)
+		slog.Error(fmt.Sprintf("%s", err))
 		os.Exit(1)
 	}
 	applicationConfig.DynamoDBClient = dynamodb.NewFromConfig(sdkConfig)
@@ -62,7 +62,7 @@ func init() {
 	// 	TTL:    time.Duration(applicationConfig.RecordTTLMinutes) * time.Minute,
 	// })
 	if err := applicationConfig.Repository.Create(context.Background()); err != nil {
-		log.Error(fmt.Sprintf("failed to create repository: %s", err))
+		slog.Error(fmt.Sprintf("failed to create repository: %s", err))
 		os.Exit(1)
 	}
 }
@@ -71,7 +71,6 @@ func init() {
 func main() {
 	// inicia a API
 	api := apis.NewHttpApi(&apis.HttpApiConfig{
-		Log:        applicationConfig.Log,
 		Address:    applicationConfig.Address,
 		Port:       applicationConfig.Port,
 		Repository: applicationConfig.Repository,
@@ -80,6 +79,6 @@ func main() {
 	// encerra a telemetria
 	err := otelShutdown(context.Background())
 	if err != nil {
-		applicationConfig.Log.Error(fmt.Sprintf("failed to shutdown OTel SDK: %s", err))
+		slog.Error(fmt.Sprintf("failed to shutdown OTel SDK: %s", err))
 	}
 }

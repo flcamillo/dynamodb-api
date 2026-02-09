@@ -5,6 +5,7 @@ import (
 	"api/models"
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -14,13 +15,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
 // Define a configuração do repositório do DynamoDB.
 type DynamoDBConfig struct {
-	// log de aplicação
-	Log interfaces.Log
 	// cliente do DynamoDB
 	Client interfaces.DynamoDBClient
 	// nome da tabela
@@ -45,11 +45,27 @@ func NewDynamoDBRepository(config *DynamoDBConfig) *DynamoDB {
 	}
 }
 
+// Cria um span contextualizado para o banco de dados de memória.
+func (p *DynamoDB) newSpan(ctx context.Context, operation string, statement string) (context.Context, trace.Span) {
+	ctx, span := p.tracer.Start(
+		ctx,
+		operation,
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("db.system", "aws.dynamodb"),
+			attribute.String("db.name", p.config.Table),
+			attribute.String("db.operation", operation),
+		),
+	)
+	if statement != "" {
+		span.SetAttributes(attribute.String("db.statement", statement))
+	}
+	return ctx, span
+}
+
 // Cria a tabela DynamoDB com os índices secundários globais necessários.
 func (p *DynamoDB) Create(ctx context.Context) error {
-	ctx, span := p.tracer.Start(ctx, "create", trace.WithAttributes(
-		attribute.String("tableName", p.config.Table)),
-	)
+	ctx, span := p.newSpan(ctx, "create-table", "")
 	defer span.End()
 	_, err := p.config.Client.CreateTable(ctx, &dynamodb.CreateTableInput{
 		AttributeDefinitions: []types.AttributeDefinition{
@@ -95,6 +111,8 @@ func (p *DynamoDB) Create(ctx context.Context) error {
 	})
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "unable to create table")
+		slog.ErrorContext(ctx, fmt.Sprintf("unable to create table, %s", err))
 		if strings.Contains(err.Error(), "already exists") {
 			return nil
 		}
@@ -106,6 +124,8 @@ func (p *DynamoDB) Create(ctx context.Context) error {
 	err = waiter.Wait(context.Background(), &dynamodb.DescribeTableInput{TableName: &p.config.Table}, 5*time.Minute)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "unable to check if table are ready")
+		slog.ErrorContext(ctx, fmt.Sprintf("unable to check if table are ready, %s", err))
 		return err
 	}
 	span.AddEvent("table ready")
@@ -119,6 +139,8 @@ func (p *DynamoDB) Create(ctx context.Context) error {
 	})
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "unable to configure TTL on table")
+		slog.ErrorContext(ctx, fmt.Sprintf("unable to configure TTL on table, %s", err))
 		return err
 	}
 	return nil
@@ -127,9 +149,7 @@ func (p *DynamoDB) Create(ctx context.Context) error {
 // Salva o registro na tabela DynamoDB.
 // Se já houver registro com o mesmo id, ele será substituído.
 func (p *DynamoDB) Save(ctx context.Context, event *models.Event) error {
-	ctx, span := p.tracer.Start(ctx, "save", trace.WithAttributes(
-		attribute.String("id", event.Id)),
-	)
+	ctx, span := p.newSpan(ctx, "put-item", "")
 	defer span.End()
 	if event.Expiration == 0 {
 		event.Expiration = time.Now().Add(p.config.TTL).Unix()
@@ -137,6 +157,8 @@ func (p *DynamoDB) Save(ctx context.Context, event *models.Event) error {
 	item, err := attributevalue.MarshalMap(event)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "unable to convert record to dynamodb object")
+		slog.ErrorContext(ctx, fmt.Sprintf("unable to convert record to dynamodb object, %s", err))
 		return err
 	}
 	_, err = p.config.Client.PutItem(ctx, &dynamodb.PutItemInput{
@@ -145,6 +167,8 @@ func (p *DynamoDB) Save(ctx context.Context, event *models.Event) error {
 	})
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "unable to put item on dynamodb")
+		slog.ErrorContext(ctx, fmt.Sprintf("unable to put item on dynamodb, %s", err))
 		return err
 	}
 	return nil
@@ -152,9 +176,7 @@ func (p *DynamoDB) Save(ctx context.Context, event *models.Event) error {
 
 // Deleta o registro da tabela DynamoDB pelo id.
 func (p *DynamoDB) Delete(ctx context.Context, id string) (event *models.Event, err error) {
-	ctx, span := p.tracer.Start(ctx, "delete", trace.WithAttributes(
-		attribute.String("id", id)),
-	)
+	ctx, span := p.newSpan(ctx, "delete-item", "id = "+id)
 	defer span.End()
 	out, err := p.config.Client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
 		TableName: &p.config.Table,
@@ -165,6 +187,8 @@ func (p *DynamoDB) Delete(ctx context.Context, id string) (event *models.Event, 
 	})
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "unable to delete item from dynamodb")
+		slog.ErrorContext(ctx, fmt.Sprintf("unable to delete item from dynamodb, %s", err))
 		return nil, err
 	}
 	if out.Attributes == nil {
@@ -174,6 +198,8 @@ func (p *DynamoDB) Delete(ctx context.Context, id string) (event *models.Event, 
 	err = attributevalue.UnmarshalMap(out.Attributes, &event)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "unable to convert dynamodb object to record")
+		slog.ErrorContext(ctx, fmt.Sprintf("unable to convert dynamodb object to record, %s", err))
 		return nil, err
 	}
 	return event, nil
@@ -181,9 +207,7 @@ func (p *DynamoDB) Delete(ctx context.Context, id string) (event *models.Event, 
 
 // Recupera o registro da tabela DynamoDB pelo id.
 func (p *DynamoDB) Get(ctx context.Context, id string) (event *models.Event, err error) {
-	ctx, span := p.tracer.Start(ctx, "get", trace.WithAttributes(
-		attribute.String("id", id)),
-	)
+	ctx, span := p.newSpan(ctx, "get-item", "id = "+id)
 	defer span.End()
 	out, err := p.config.Client.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: &p.config.Table,
@@ -193,6 +217,8 @@ func (p *DynamoDB) Get(ctx context.Context, id string) (event *models.Event, err
 	})
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "unable to get item from dynamodb")
+		slog.ErrorContext(ctx, fmt.Sprintf("unable to get item from dynamodb, %s", err))
 		return nil, err
 	}
 	if out.Item == nil {
@@ -202,6 +228,8 @@ func (p *DynamoDB) Get(ctx context.Context, id string) (event *models.Event, err
 	err = attributevalue.UnmarshalMap(out.Item, &event)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "unable to convert dynamodb object to record")
+		slog.ErrorContext(ctx, fmt.Sprintf("unable to convert dynamodb object to record, %s", err))
 		return nil, err
 	}
 	return event, nil
@@ -209,11 +237,11 @@ func (p *DynamoDB) Get(ctx context.Context, id string) (event *models.Event, err
 
 // Procura registros com a data entre o período especificado e com o status code fornecido.
 func (p *DynamoDB) FindByDateAndReturnCode(ctx context.Context, from time.Time, to time.Time, statusCode int) (events []*models.Event, err error) {
-	ctx, span := p.tracer.Start(ctx, "find-by-date-and-return-code", trace.WithAttributes(
-		attribute.String("from", from.Format(time.RFC3339)),
-		attribute.String("to", from.Format(time.RFC3339)),
-		attribute.Int("statusCode", statusCode),
-	))
+	ctx, span := p.newSpan(
+		ctx,
+		"query",
+		fmt.Sprintf("statusCode = %d AND date BETWEEN %s AND %s on INDEX %s", statusCode, from.Format(time.RFC3339), to.Format(time.RFC3339), "date-statusCode-index"),
+	)
 	defer span.End()
 	condition := &dynamodb.QueryInput{
 		TableName: aws.String(p.config.Table),
@@ -235,6 +263,8 @@ func (p *DynamoDB) FindByDateAndReturnCode(ctx context.Context, from time.Time, 
 		page, err := paginator.NextPage(ctx)
 		if err != nil {
 			span.RecordError(err)
+			span.SetStatus(codes.Error, "unable to get next page of records from dynamodb")
+			slog.ErrorContext(ctx, fmt.Sprintf("unable to get next page of records from dynamodb, %s", err))
 			return nil, err
 		}
 		for _, item := range page.Items {
@@ -242,6 +272,8 @@ func (p *DynamoDB) FindByDateAndReturnCode(ctx context.Context, from time.Time, 
 			err = attributevalue.UnmarshalMap(item, event)
 			if err != nil {
 				span.RecordError(err)
+				span.SetStatus(codes.Error, "unable to convert dynamodb object to record")
+				slog.ErrorContext(ctx, fmt.Sprintf("unable to convert dynamodb object to record, %s", err))
 				return nil, err
 			}
 			events = append(events, event)

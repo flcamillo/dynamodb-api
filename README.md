@@ -139,18 +139,26 @@ graph TB
 
 ## 📦 Requisitos
 
-- **Go**: 1.21+
-- **AWS SDK for Go**: v2
+- **Go**: 1.25.5+
+- **AWS SDK for Go**: v2 (v1.41.1+)
 - **Docker**: (opcional, para DynamoDB local e OTEL Collector)
 - **curl** ou **Postman**: para testar endpoints
 
-### Dependências Go
+### Dependências Principais
 
-```bash
-go get github.com/aws/aws-sdk-go-v2
-go get github.com/aws/aws-lambda-go
-go get go.opentelemetry.io/otel
-go get github.com/google/uuid
+Todas as dependências estão definidas no `go.mod`:
+
+```go
+require (
+	github.com/aws/aws-lambda-go v1.52.0
+	github.com/aws/aws-sdk-go-v2 v1.41.1
+	github.com/aws/aws-sdk-go-v2/config v1.32.7
+	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.55.0
+	github.com/google/uuid v1.6.0
+	go.opentelemetry.io/otel v1.40.0
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.65.0
+	// ... e mais
+)
 ```
 
 ## 🚀 Instalação e Configuração
@@ -172,7 +180,7 @@ go mod tidy
 
 ```json
 {
-  "address": "localhost",
+  "address": "0.0.0.0",
   "port": 7000,
   "record_ttl_minutes": 1440
 }
@@ -180,7 +188,7 @@ go mod tidy
 
 **Parâmetros:**
 - `address`: Endereço de binding do servidor (default: 0.0.0.0)
-- `port`: Porta do servidor (default: 7000)
+- `port`: Porta do servidor HTTP (default: 7000)
 - `record_ttl_minutes`: Tempo de vida dos registros em minutos (default: 1440 = 24 horas)
 
 ### 4. Configure Variáveis de Ambiente (AWS)
@@ -194,6 +202,15 @@ export AWS_SECRET_ACCESS_KEY=seu_secret_key
 # Para usar DynamoDB local
 export AWS_ENDPOINT_URL_DYNAMODB=http://localhost:8000
 export AWS_REGION=local
+
+# Para OpenTelemetry
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+export OTEL_SDK_DISABLED=false
+
+# Para Datadog (opcional)
+export DD_SERVICE=dynamodb-api
+export DD_ENV=local
+export DD_TRACE_AGENT_URL=http://localhost:8126
 ```
 
 ## ▶️ Executando a Aplicação
@@ -700,6 +717,8 @@ dynamodb-api/
 
 ### Arquivo `config.json`
 
+O arquivo de configuração é carregado automaticamente no startup da aplicação a partir do diretório de execução.
+
 ```json
 {
   "address": "0.0.0.0",
@@ -712,24 +731,29 @@ dynamodb-api/
 
 | Parâmetro | Tipo | Padrão | Descrição |
 |-----------|------|--------|-----------|
-| `address` | string | `0.0.0.0` | Endereço para bind do servidor |
+| `address` | string | `0.0.0.0` | Endereço para bind do servidor (0.0.0.0 = todos os interfaces) |
 | `port` | int | `7000` | Porta do servidor HTTP |
-| `record_ttl_minutes` | int64 | `1440` | TTL dos registros em minutos |
+| `record_ttl_minutes` | int64 | `1440` | TTL dos registros em minutos (tempo de vida antes da expiração automática) |
 
 ### Variáveis de Ambiente
 
 ```bash
 # AWS Configuration
-AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=xxxxx
-AWS_SECRET_ACCESS_KEY=xxxxx
-
-# DynamoDB Local
-AWS_ENDPOINT_URL_DYNAMODB=http://localhost:8000
+AWS_REGION=us-east-1                              # Região AWS padrão
+AWS_ACCESS_KEY_ID=xxxxx                           # Credencial AWS
+AWS_SECRET_ACCESS_KEY=xxxxx                       # Credencial AWS
+AWS_ENDPOINT_URL_DYNAMODB=http://localhost:8000   # DynamoDB local (desenvolvimento)
 
 # OpenTelemetry
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
-OTEL_SDK_DISABLED=false
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 # Endpoint do OTEL Collector
+OTEL_SDK_DISABLED=false                           # Habilita/desabilita OTEL
+OTEL_TRACES_EXPORTER=otlp                         # Exporter de traces
+OTEL_METRICS_EXPORTER=otlp                        # Exporter de métricas
+
+# Datadog (opcional)
+DD_SERVICE=dynamodb-api                           # Nome do serviço
+DD_ENV=local                                      # Ambiente
+DD_TRACE_AGENT_URL=http://localhost:8126          # URL do Datadog agent
 ```
 
 ---
@@ -738,44 +762,117 @@ OTEL_SDK_DISABLED=false
 
 ### OpenTelemetry
 
-A aplicação exporta **traces** e **métricas** automaticamente.
+A aplicação implementa observabilidade completa através do OpenTelemetry (OTEL), exportando **traces**, **métricas** e **logs** estruturados.
+
+**Recursos de Observabilidade:**
+- ✅ Tracing distribuído de todas as operações
+- ✅ Métricas automáticas por tipo de requisição
+- ✅ Logs estruturados via `slog` + OTEL bridge
+- ✅ Integração com Datadog, Jaeger e Prometheus
+- ✅ Latência e duração de operações medidas
 
 **Métricas Coletadas:**
-- `post.requests` - Número de requisições POST
-- `get.requests` - Número de requisições GET
-- `put.requests` - Número de requisições PUT
-- `delete.requests` - Número de requisições DELETE
-- `find.requests` - Número de requisições FIND
+- `post.requests` - Requisições POST (criar evento)
+- `get.requests` - Requisições GET (obter evento)
+- `put.requests` - Requisições PUT (atualizar evento)
+- `delete.requests` - Requisições DELETE (deletar evento)
+- `find.requests` - Requisições FIND (listar eventos)
+- `request.duration_ms` - Duração em millisegundos
+- `repository.operation.duration_ms` - Duração de operações de repositório
 
-**Traces:**
-- Cada operação de repositório é rastreada
-- Latência de cada operação é medida
-- Erros são registrados com contexto
+**Atributos de Contexto:**
+- `event.id` - ID do evento
+- `request.method` - Método HTTP
+- `http.status_code` - Código de resposta HTTP
+- `error.type` - Tipo de erro (se houver)
+- `db.operation` - Tipo de operação (Save, Get, Delete, Find)
+
+### Datadog Integration
+
+A aplicação envia dados para Datadog através do Datadog Agent local.
+
+```bash
+# Configure o Datadog Agent
+export DD_SERVICE=dynamodb-api
+export DD_ENV=production
+export DD_VERSION=1.0.0
+export DD_TRACE_AGENT_URL=http://localhost:8126
+
+# Inicie a aplicação
+go run main.go
+```
+
+**Dashboards Disponíveis:**
+- Métricas de requisições (taxa, latência, erros)
+- Traces distribuídos com análise de dependências
+- Logs correlacionados com traces
+- Análise de performance e bottlenecks
 
 ### Docker Compose para Observabilidade
 
 ```bash
-# Inicie os serviços de observabilidade
+# Inicie todos os serviços de observabilidade
 docker-compose -f extra/docker-compose.yml up -d
 
-# Acesse o Jaeger
+# Acesse o Jaeger (traces)
 open http://localhost:16686
 
-# Acesse o Prometheus
+# Acesse o Prometheus (métricas)
 open http://localhost:9090
+
+# Verifique o OTEL Collector
+curl http://localhost:13133
+
+# Datadog (se configurado)
+# https://app.datadoghq.com/
 ```
 
 ### Exemplo de Consulta Prometheus
 
 ```promql
-# Taxa de requisições por segundo
-rate(post.requests[1m])
+# Taxa de requisições POST por segundo
+rate(post_requests_total[1m])
 
-# Requisições por tipo
-sum by(method) (rate(requests[5m]))
+# Requisições por tipo (método HTTP)
+sum by(method) (rate(requests_total[5m]))
 
-# Erros por tipo
-rate(errors_total[5m])
+# Taxa de erros
+rate(request_errors_total[5m])
+
+# Latência p99 de requisições
+histogram_quantile(0.99, request_duration_seconds_bucket)
+
+# Operações lentas no repositório
+rate(repository_operation_duration_ms_bucket{le="1000"}[5m])
+```
+
+### Exemplo de Query Jaeger
+
+1. Acesse http://localhost:16686
+2. Selecione "dynamodb-api" no dropdown de serviços
+3. Filtre por operações:
+   - `POST /eventos` - Criar evento
+   - `GET /eventos/{id}` - Obter evento
+   - `PUT /eventos/{id}` - Atualizar evento
+   - `DELETE /eventos/{id}` - Deletar evento
+   - `GET /eventos` - Listar eventos
+
+### Logs Estruturados
+
+Todos os logs são estruturados em JSON e exportados via OTEL:
+
+```json
+{
+  "timestamp": "2025-02-08T10:30:45Z",
+  "level": "INFO",
+  "logger": "dynamodb-api",
+  "message": "evento criado com sucesso",
+  "event_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status_code": 201,
+  "duration_ms": 125,
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "span_id": "00f067aa0ba902b7"
+}
 ```
 
 ---
@@ -885,12 +982,15 @@ Abaixo estão os printscreens da integração com Datadog, mostrando métricas, 
 ### A API não inicia
 
 ```bash
-# Verifique se a porta 7000 está em uso
+# Verifique se a porta 7000 está em uso (Windows)
+netstat -ano | findstr :7000
+
+# Ou (Linux/Mac)
 lsof -i :7000
 
 # Use uma porta diferente (edite config.json)
-# ou mate o processo
-kill -9 <PID>
+# ou mate o processo (Windows)
+taskkill /PID <PID> /F
 ```
 
 ### Erro ao conectar no DynamoDB
@@ -900,17 +1000,50 @@ kill -9 <PID>
 aws sts get-caller-identity
 
 # Para DynamoDB local, inicie o Docker
-docker-compose -f extra/docker-compose.yml up dynamodb-local
+docker-compose -f extra/docker-compose.yml up -d dynamodb-local
+
+# Verifique a conexão
+curl http://localhost:8000
 ```
 
-### Logs não aparecem
+### Logs não aparecem no OTEL Collector
 
 ```bash
-# Verifique se OTEL está habilitado
-export OTEL_SDK_DISABLED=false
+# Verifique se o OTEL Collector está rodando
+curl http://localhost:13133
 
-# Configure o endpoint do collector
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+# Confirme as variáveis de ambiente
+echo $OTEL_EXPORTER_OTLP_ENDPOINT
+echo $OTEL_SDK_DISABLED
+
+# Logs da aplicação
+# Deve exibir: "Setup OTel SDK successfully"
+```
+
+### Erro: "table does not exist"
+
+```bash
+# O DynamoDB cria a tabela automaticamente na primeira execução
+# Verifique se o DynamoDB local está iniciado
+docker ps | grep dynamodb
+
+# Se a tabela não foi criada:
+# 1. Verifique os logs de erro
+# 2. Reinicie o DynamoDB local
+# 3. Remova o volume do Docker: docker volume prune
+```
+
+### Performance Lenta
+
+```bash
+# Verifique as métricas no Prometheus
+http://localhost:9090
+
+# Analise traces no Jaeger
+http://localhost:16686
+
+# Verifique logs com maior detalhe
+# Aumente o nível de log em otel.go
 ```
 
 ---
@@ -953,4 +1086,4 @@ Para dúvidas ou problemas, consulte:
 
 ---
 
-**Última atualização:** Janeiro 2026
+**Última atualização:** Fevereiro 2026

@@ -5,19 +5,28 @@ import (
 	"api/interfaces"
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
-
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
+
+// Estrutura do ResponseWriter para capturar o status code das requisições.
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+// Implementa o método para gravar o header da interface.
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
+}
 
 // Configuração da API para servidor HTTP.
 type HttpApiConfig struct {
-	// log de aplicação
-	Log interfaces.Log
 	// endereço do servidor
 	Address string
 	// porta do servidor
@@ -43,10 +52,35 @@ func NewHttpApi(config *HttpApiConfig) *HttpApi {
 		ReadTimeout:    30 * time.Second,
 		WriteTimeout:   30 * time.Second,
 	}
-	return &HttpApi{
+	h := &HttpApi{
 		server: server,
 		config: config,
 	}
+	return h
+}
+
+// Middleware para logar todas as requests, inclusive 404 e coletar metricas.
+func (p *HttpApi) basicMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rw := &responseWriter{
+			ResponseWriter: w,
+			statusCode:     http.StatusOK,
+		}
+		next.ServeHTTP(rw, r)
+		duration := time.Since(start)
+		slog.InfoContext(
+			r.Context(),
+			fmt.Sprintf("request duration {%dms} status code {%d} method {%s} path {%s} remote address {%s} agent {%s}",
+				duration.Milliseconds(),
+				rw.statusCode,
+				r.Method,
+				r.URL.Path,
+				r.RemoteAddr,
+				r.UserAgent(),
+			),
+		)
+	})
 }
 
 // Inicia a API para servidor HTTP.
@@ -54,28 +88,28 @@ func (p *HttpApi) Run() {
 	// deve inicializar um context com cancelamento para receber sinais de término
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	// inicia o servidor em uma goroutine
+	// configura o handler
 	router := http.NewServeMux()
 	handler := handlers.NewHttpHandler(&handlers.HttpHandlerConfig{
-		Log:        p.config.Log,
 		Repository: p.config.Repository,
 	})
 	handler.HandleRequest(router)
-	p.server.Handler = otelhttp.NewHandler(router, "http.handler") // configura telemetria no handler
+	p.server.Handler = p.basicMiddleware(router)
+	// inicia o servidor em uma goroutine
 	errChan := make(chan error, 1)
 	go func() {
-		p.config.Log.Info(fmt.Sprintf("starting server on: %s", p.server.Addr))
+		slog.Info(fmt.Sprintf("starting server on: %s", p.server.Addr))
 		errChan <- p.server.ListenAndServe()
 	}()
 	// aguarda o sinal de término
 	select {
 	case err := <-errChan:
-		p.config.Log.Error(fmt.Sprintf("server error: %s", err))
+		slog.Error(fmt.Sprintf("server error: %s", err))
 	case <-ctx.Done():
 		stop()
 	}
 	p.server.Shutdown(context.Background())
-	p.config.Log.Info("server exiting")
+	slog.Info("server exiting")
 }
 
 // Encerra a API para servidor HTTP.

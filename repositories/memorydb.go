@@ -4,6 +4,7 @@ import (
 	"api/interfaces"
 	"api/models"
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -39,6 +40,24 @@ func NewMemoryDB(config *MemoryDBConfig) *MemoryDB {
 	}
 }
 
+// Cria um span contextualizado para o banco de dados de memória.
+func (p *MemoryDB) newSpan(ctx context.Context, operation string, statement string) (context.Context, trace.Span) {
+	ctx, span := p.tracer.Start(
+		ctx,
+		operation,
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("db.system", "memorydb"),
+			attribute.String("db.name", "events"),
+			attribute.String("db.operation", operation),
+		),
+	)
+	if statement != "" {
+		span.SetAttributes(attribute.String("db.statement", statement))
+	}
+	return ctx, span
+}
+
 // Cria o repositório (não faz nada no caso do MemoryDB).
 func (p *MemoryDB) Create(ctx context.Context) error {
 	return nil
@@ -47,9 +66,7 @@ func (p *MemoryDB) Create(ctx context.Context) error {
 // Salva o registro na memória.
 // Se já houver registro com o mesmo id, ele será substituído.
 func (p *MemoryDB) Save(ctx context.Context, event *models.Event) error {
-	ctx, span := p.tracer.Start(ctx, "save", trace.WithAttributes(
-		attribute.String("id", event.Id)),
-	)
+	ctx, span := p.newSpan(ctx, "save", "")
 	defer span.End()
 	if event.Expiration == 0 && p.config.TTL > 0 {
 		event.Expiration = time.Now().Add(p.config.TTL).Unix()
@@ -63,9 +80,7 @@ func (p *MemoryDB) Save(ctx context.Context, event *models.Event) error {
 
 // Deleta o registro da memória pelo id.
 func (p *MemoryDB) Delete(ctx context.Context, id string) (event *models.Event, err error) {
-	ctx, span := p.tracer.Start(ctx, "delete", trace.WithAttributes(
-		attribute.String("id", id)),
-	)
+	ctx, span := p.newSpan(ctx, "delete", "id = "+id)
 	defer span.End()
 	event, ok := p.db[id]
 	if !ok {
@@ -78,9 +93,7 @@ func (p *MemoryDB) Delete(ctx context.Context, id string) (event *models.Event, 
 
 // Recupera o registro da memória pelo id.
 func (p *MemoryDB) Get(ctx context.Context, id string) (event *models.Event, err error) {
-	ctx, span := p.tracer.Start(ctx, "get", trace.WithAttributes(
-		attribute.String("id", id)),
-	)
+	ctx, span := p.newSpan(ctx, "get", "id = "+id)
 	defer span.End()
 	event, ok := p.db[id]
 	if !ok {
@@ -96,11 +109,7 @@ func (p *MemoryDB) Get(ctx context.Context, id string) (event *models.Event, err
 
 // Encontra registros pela data e código de retorno.
 func (p *MemoryDB) FindByDateAndReturnCode(ctx context.Context, from time.Time, to time.Time, statusCode int) (events []*models.Event, err error) {
-	ctx, span := p.tracer.Start(ctx, "find-by-date-and-return-code", trace.WithAttributes(
-		attribute.String("from", from.Format(time.RFC3339)),
-		attribute.String("to", from.Format(time.RFC3339)),
-		attribute.Int("statusCode", statusCode),
-	))
+	ctx, span := p.newSpan(ctx, "query", fmt.Sprintf("from = %s to = %s statusCode = %d", from.Format(time.RFC3339), to.Format(time.RFC3339), statusCode))
 	defer span.End()
 	expired := make([]string, 0)
 	for k, v := range p.db {
