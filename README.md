@@ -1,141 +1,83 @@
-# DynamoDB API - Documentação Completa
+# DynamoDB API
 
-Uma API RESTful robusta construída em Go para gerenciar eventos utilizando AWS DynamoDB ou um repositório em memória. A aplicação oferece suporte a múltiplos modos de deployment (HTTP Server e AWS Lambda), com telemetria integrada via OpenTelemetry.
+Uma API RESTful robusta construída em Go para gerenciar eventos utilizando AWS DynamoDB ou um repositório em memória. A aplicação oferece suporte a múltiplos modos de deployment (HTTP Server e AWS Lambda), com telemetria integrada via OpenTelemetry e integração completa com Datadog.
 
-## 📋 Índice
+**📖 Documentação Detalhada:** Veja [README_DETALHADO.md](README_DETALHADO.md) para guia técnico completo com diagramas Mermaid, screenshots do Datadog e configuração avançada.
+
+## ✨ Características Principais
+
+- ✅ **API RESTful completa** para CRUD de eventos
+- ✅ **Suporte dual**: HTTP Server + AWS Lambda
+- ✅ **Repositórios plugáveis**: DynamoDB e In-Memory
+- ✅ **OpenTelemetry integrado** para observabilidade completa
+- ✅ **Integração Datadog** com APM, Logs e Métricas
+- ✅ **Métricas e Tracing** automáticos em todas as operações
+- ✅ **TTL (Time To Live)** para expiração automática de registros
+- ✅ **Suporte a metadata** customizável por evento
+
+## � Índice
 
 - [Características](#características)
-- [Arquitetura](#arquitetura)
+- [Quick Start](#quick-start)
+- [Documentação Completa](#documentação-completa)
 - [Requisitos](#requisitos)
 - [Instalação e Configuração](#instalação-e-configuração)
 - [Executando a Aplicação](#executando-a-aplicação)
 - [Endpoints da API](#endpoints-da-api)
 - [Exemplos com cURL](#exemplos-com-curl)
 - [Estrutura do Projeto](#estrutura-do-projeto)
-- [Configuração](#configuração)
 - [Telemetria e Observabilidade](#telemetria-e-observabilidade)
 
-## ✨ Características
+## ✨ Características Principais
 
 - ✅ **API RESTful completa** para CRUD de eventos
 - ✅ **Suporte dual**: HTTP Server + AWS Lambda
 - ✅ **Repositórios plugáveis**: DynamoDB e In-Memory
-- ✅ **OpenTelemetry integrado** para observabilidade
-- ✅ **Métricas e Tracing** automáticos
-- ✅ **Validação de dados** robusta
+- ✅ **OpenTelemetry integrado** para observabilidade completa
+- ✅ **Integração Datadog** com APM, Logs e Métricas
+- ✅ **Métricas e Tracing** automáticos em todas as operações
 - ✅ **TTL (Time To Live)** para expiração automática de registros
 - ✅ **Suporte a metadata** customizável por evento
 
-## 🏗️ Arquitetura
+---
 
-### Diagrama de Componentes
+## 🚀 Quick Start
 
-```mermaid
-graph TB
-    Client["🖥️ Cliente HTTP"]
-    Lambda["⚡ AWS Lambda"]
-    
-    Client -->|HTTP| API["🌐 HTTP API<br/>Port 7000"]
-    Lambda -->|Event| LambdaAPI["📦 Lambda API"]
-    
-    API -->|Request| HTTPHandler["🔧 HTTP Handler"]
-    LambdaAPI -->|Event| LambdaHandler["🔧 Lambda Handler"]
-    
-    HTTPHandler -->|CRUD| Repo["📊 Repository Interface"]
-    LambdaHandler -->|CRUD| Repo
-    
-    Repo -->|Config| DynamoDB["🗄️ DynamoDB"]
-    Repo -->|Config| MemoryDB["💾 In-Memory DB"]
-    
-    DynamoDB -->|AWS SDK| AWS["☁️ AWS Cloud"]
-    
-    HTTPHandler -->|Metrics| OTel["📈 OpenTelemetry"]
-    LambdaHandler -->|Tracing| OTel
-    
-    OTel -->|Export| Collector["📡 OTEL Collector<br/>:4317"]
-    Collector -->|Prometheus| Prom["📊 Prometheus"]
-    Collector -->|Jaeger| Jaeger["🔍 Jaeger"]
+**Comece em 5 minutos!** Veja [QUICKSTART.md](QUICKSTART.md) para instruções passo-a-passo.
+
+```bash
+# 1. Clone e prepare
+git clone https://github.com/flcamillo/dynamodb-api.git
+cd dynamodb-api
+go mod download
+
+# 2. Inicie Docker Compose
+docker-compose -f extra/docker-compose.yml up -d
+
+# 3. Configure variáveis de ambiente
+export AWS_ENDPOINT_URL_DYNAMODB=http://localhost:8000
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+export OTEL_RESOURCE_ATTRIBUTES=service.name=dynamodb-api,service.version=1.0.0,deployment.environment=dev
+
+# 4. Execute
+go run main.go
+
+# 5. Teste
+curl http://localhost:7000/health
 ```
 
-### Fluxo de Dados
+---
 
-```mermaid
-sequenceDiagram
-    participant Client
-    participant API as HTTP/Lambda API
-    participant Handler as Handler
-    participant Repo as Repository
-    participant DB as DynamoDB/Memory
-    participant OTel as OpenTelemetry
-    
-    Client->>API: HTTP Request / Lambda Event
-    API->>Handler: HandleRequest
-    
-    Handler->>Handler: Validate Input
-    Handler->>OTel: Start Span
-    
-    Handler->>Repo: Save/Get/Delete/Find
-    Repo->>DB: Execute Operation
-    DB-->>Repo: Result
-    
-    Repo-->>Handler: Response
-    
-    Handler->>OTel: Add Metrics
-    Handler->>OTel: Record Latency
-    OTel-->>Handler: OK
-    
-    Handler-->>API: JSON Response
-    API-->>Client: HTTP 200/400/500
-```
+## 📖 Documentação Completa
 
-### Estrutura de Camadas
+| Documento | Conteúdo |
+|-----------|----------|
+| **[README_DETALHADO.md](README_DETALHADO.md)** | 📊 Arquitetura, diagramas Mermaid, API completa, Datadog integration, troubleshooting |
+| **[QUICKSTART.md](QUICKSTART.md)** | ⚡ Setup em 5 minutos, testes básicos, dashboards |
+| **[ENV_VARIABLES.md](ENV_VARIABLES.md)** | 🔧 Todas as variáveis de ambiente, presets, scripts de setup |
+| **.env.example** | 📝 Template de variáveis de ambiente |
 
-```mermaid
-graph TB
-    subgraph "HTTP Server"
-        direction LR
-        HTTP["HTTP Router"]
-        HTTPHandler["HTTP Handler"]
-        HTTP -->|Route| HTTPHandler
-    end
-    
-    subgraph "Lambda Function"
-        direction LR
-        LambdaEvent["Lambda Event"]
-        LambdaHandler["Lambda Handler"]
-        LambdaEvent -->|Parse| LambdaHandler
-    end
-    
-    subgraph "Core Application"
-        direction TB
-        Handler["Request Handler"]
-        Validator["Validator"]
-        Handler -->|Validate| Validator
-    end
-    
-    subgraph "Data Layer"
-        direction TB
-        RepoInterface["Repository Interface"]
-        DynamoRepo["DynamoDB Repository"]
-        MemRepo["Memory Repository"]
-        RepoInterface -->|Implements| DynamoRepo
-        RepoInterface -->|Implements| MemRepo
-    end
-    
-    subgraph "External Services"
-        direction LR
-        DynamoDB["AWS DynamoDB"]
-        OTel["OpenTelemetry"]
-        Logs["Structured Logs"]
-    end
-    
-    HTTPHandler -->|Uses| Handler
-    LambdaHandler -->|Uses| Handler
-    Handler -->|Uses| RepoInterface
-    DynamoRepo -->|Calls| DynamoDB
-    Handler -->|Sends| OTel
-    Handler -->|Writes| Logs
-```
+---
 
 ## 📦 Requisitos
 
@@ -193,6 +135,8 @@ go mod tidy
 
 ### 4. Configure Variáveis de Ambiente (AWS)
 
+**Veja [ENV_VARIABLES.md](ENV_VARIABLES.md) para documentação completa de todas as variáveis disponíveis.**
+
 ```bash
 # Para usar AWS DynamoDB real
 export AWS_REGION=us-east-1
@@ -206,11 +150,18 @@ export AWS_REGION=local
 # Para OpenTelemetry
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 export OTEL_SDK_DISABLED=false
+export OTEL_RESOURCE_ATTRIBUTES=service.name=dynamodb-api,service.version=1.0.0,deployment.environment=dev
 
 # Para Datadog (opcional)
 export DD_SERVICE=dynamodb-api
-export DD_ENV=local
+export DD_ENV=dev
 export DD_TRACE_AGENT_URL=http://localhost:8126
+```
+
+Ou copie o arquivo template:
+```bash
+cp .env.example .env
+# Edite .env com seus valores
 ```
 
 ## ▶️ Executando a Aplicação
