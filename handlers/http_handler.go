@@ -24,13 +24,26 @@ import (
 // Estrutura do ResponseWriter para capturar o status code das requisições.
 type responseWriter struct {
 	http.ResponseWriter
-	statusCode int
+	statusCode  int
+	wroteHeader bool
 }
 
-// Implementa o método para gravar o header da interface.
+// Sobrescreve o método WriteHeader para capturar o status code.
 func (rw *responseWriter) WriteHeader(code int) {
+	if rw.wroteHeader {
+		return
+	}
 	rw.statusCode = code
+	rw.wroteHeader = true
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+// Sobrescreve o método Write para garantir que o status code seja capturado mesmo quando WriteHeader não é chamado explicitamente.
+func (rw *responseWriter) Write(b []byte) (int, error) {
+	if !rw.wroteHeader {
+		rw.WriteHeader(http.StatusOK)
+	}
+	return rw.ResponseWriter.Write(b)
 }
 
 // Configuração do HttpHandler.
