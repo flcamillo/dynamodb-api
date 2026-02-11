@@ -69,7 +69,11 @@ func init() {
 
 // inicia a aplicação
 func main() {
-	// inicia a API
+	// inicia a API no modo Lambda
+	// api := apis.NewLambdaApi(&apis.LambdaApiConfig{
+	// 	Repository: applicationConfig.Repository,
+	// })
+	// inicia a API no modo HTTP
 	api := apis.NewHttpApi(&apis.HttpApiConfig{
 		Address:    applicationConfig.Address,
 		Port:       applicationConfig.Port,

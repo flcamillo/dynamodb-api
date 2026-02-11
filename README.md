@@ -171,7 +171,7 @@ dynamodb-api/
 
 ```bash
 # Clone ou entre no diretório
-cd d:\Fabio\Go\src\dynamodb-api
+git clone https://github.com/flcamillo/dynamodb-api.git
 
 # Baixe as dependências
 go mod download
