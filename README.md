@@ -631,6 +631,13 @@ Capturas de tela da integração Datadog estão em `extra/`:
 ![APM 10](extra/datadog_apm10.png)
 ![APM 11](extra/datadog_apm11.png)
 ![APM 12](extra/datadog_apm12.png)
+![APM 13](extra/datadog_apm13.png)
+![APM 14](extra/datadog_apm14.png)
+![APM 15](extra/datadog_apm15.png)
+![APM 16](extra/datadog_apm16.png)
+![APM 17](extra/datadog_apm17.png)
+![APM 18](extra/datadog_apm18.png)
+![APM 19](extra/datadog_apm19.png)
 
 ### Métricas Customizadas
 
