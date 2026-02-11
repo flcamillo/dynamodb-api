@@ -22,8 +22,6 @@ import (
 
 // Configuração do LambdaHandler.
 type LambdaHandlerConfig struct {
-	// log de aplicação
-	Log interfaces.Log
 	// repositório de dados
 	Repository interfaces.Repository
 }
@@ -46,6 +44,8 @@ func NewLambdaHandler(config *LambdaHandlerConfig) *LambdaHandler {
 
 // Identifica o método HTTP da requisição e direciona para o handler apropriado.
 func (p *LambdaHandler) HandleRequest(ctx context.Context, request events.APIGatewayV2HTTPRequest) (response events.APIGatewayV2HTTPResponse, err error) {
+	ctx, span := p.tracer.Start(ctx, "HandleRequest", trace.WithSpanKind(trace.SpanKindServer))
+	defer span.End()
 	start := time.Now()
 	switch request.RequestContext.HTTP.Method {
 	case "GET":
@@ -63,7 +63,8 @@ func (p *LambdaHandler) HandleRequest(ctx context.Context, request events.APIGat
 		}, nil
 	}
 	duration := time.Since(start)
-	p.config.Log.Info(
+	slog.InfoContext(
+		ctx,
 		fmt.Sprintf("request duration {%dms} status code {%d} method {%s} path {%s} remote address {%s} agent {%s}",
 			duration.Milliseconds(),
 			response.StatusCode,
@@ -78,11 +79,7 @@ func (p *LambdaHandler) HandleRequest(ctx context.Context, request events.APIGat
 
 // Processa requisições GET.
 func (p *LambdaHandler) handleGet(ctx context.Context, request events.APIGatewayV2HTTPRequest) (response events.APIGatewayV2HTTPResponse, err error) {
-	ctx, span := p.tracer.Start(
-		ctx,
-		"handleGet",
-		trace.WithSpanKind(trace.SpanKindServer),
-	)
+	ctx, span := p.tracer.Start(ctx, "handleGet")
 	defer span.End()
 	id := request.PathParameters["id"]
 	if id == "" {
@@ -122,11 +119,7 @@ func (p *LambdaHandler) handleGet(ctx context.Context, request events.APIGateway
 
 // Processa requisições POST.
 func (p *LambdaHandler) handlePost(ctx context.Context, request events.APIGatewayV2HTTPRequest) (response events.APIGatewayV2HTTPResponse, err error) {
-	ctx, span := p.tracer.Start(
-		ctx,
-		"handlePost",
-		trace.WithSpanKind(trace.SpanKindServer),
-	)
+	ctx, span := p.tracer.Start(ctx, "handlePost")
 	defer span.End()
 	event := &models.Event{}
 	if err := json.NewDecoder(strings.NewReader(request.Body)).Decode(event); err != nil {
@@ -173,11 +166,7 @@ func (p *LambdaHandler) handlePost(ctx context.Context, request events.APIGatewa
 
 // Processa requisições PUT.
 func (p *LambdaHandler) handlePut(ctx context.Context, request events.APIGatewayV2HTTPRequest) (response events.APIGatewayV2HTTPResponse, err error) {
-	ctx, span := p.tracer.Start(
-		ctx,
-		"handlePut",
-		trace.WithSpanKind(trace.SpanKindServer),
-	)
+	ctx, span := p.tracer.Start(ctx, "handlePut")
 	defer span.End()
 	id := request.PathParameters["id"]
 	if id == "" {
@@ -235,11 +224,7 @@ func (p *LambdaHandler) handlePut(ctx context.Context, request events.APIGateway
 
 // Processa requisições DELETE.
 func (p *LambdaHandler) handleDelete(ctx context.Context, request events.APIGatewayV2HTTPRequest) (response events.APIGatewayV2HTTPResponse, err error) {
-	ctx, span := p.tracer.Start(
-		ctx,
-		"handleDelete",
-		trace.WithSpanKind(trace.SpanKindServer),
-	)
+	ctx, span := p.tracer.Start(ctx, "handleDelete")
 	defer span.End()
 	id := request.PathParameters["id"]
 	if id == "" {
@@ -282,11 +267,7 @@ func (p *LambdaHandler) handleDelete(ctx context.Context, request events.APIGate
 
 // Processa requisições GET com filtro.
 func (p *LambdaHandler) handleFind(ctx context.Context, request events.APIGatewayV2HTTPRequest) (response events.APIGatewayV2HTTPResponse, err error) {
-	ctx, span := p.tracer.Start(
-		ctx,
-		"handleFind",
-		trace.WithSpanKind(trace.SpanKindServer),
-	)
+	ctx, span := p.tracer.Start(ctx, "handleFind")
 	defer span.End()
 	// configura valores default caso sejam informados
 	from := time.Now().Add(-1 * time.Hour)

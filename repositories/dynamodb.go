@@ -240,7 +240,11 @@ func (p *DynamoDB) FindByDateAndReturnCode(ctx context.Context, from time.Time, 
 	ctx, span := p.newSpan(
 		ctx,
 		"query",
-		fmt.Sprintf("statusCode = %d AND date BETWEEN %s AND %s on INDEX %s", statusCode, from.Format(time.RFC3339), to.Format(time.RFC3339), "date-statusCode-index"),
+		fmt.Sprintf("statusCode = %d AND date BETWEEN %s AND %s on INDEX %s",
+			statusCode,
+			from.Format(time.RFC3339),
+			to.Format(time.RFC3339),
+			"date-statusCode-index"),
 	)
 	defer span.End()
 	condition := &dynamodb.QueryInput{

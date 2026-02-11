@@ -14,8 +14,6 @@ type Config struct {
 	DynamoDBClient interfaces.DynamoDBClient `json:"-"`
 	// repositório de dados
 	Repository interfaces.Repository `json:"-"`
-	// log de aplicação
-	Log interfaces.Log `json:"-"`
 	// endereço para ativar o servidor
 	Address string `json:"address"`
 	// porta do servidor

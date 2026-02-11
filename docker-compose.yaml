@@ -1,0 +1,39 @@
+services:
+  app:
+    image: dynamodb-api
+    container_name: app-go
+    build:
+      context: .
+      dockerfile: dockerfile
+    environment:
+      - OTEL_SERVICE_NAME=dynamodb-api
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-agent:4317
+      - OTEL_RESOURCE_ATTRIBUTES=service.version=1.0.0,deployment.environment=dev,team=backend
+    ports:
+      - "7000:7000"
+
+  datadog-agent:
+    image: gcr.io/datadoghq/agent:latest
+    container_name: datadog-agent
+    pid: host
+    environment:
+      - DD_API_KEY=xxx
+      - DD_SITE=us5.datadoghq.com
+      - DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT=0.0.0.0:4317
+      - DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT=0.0.0.0:4318
+      - DD_OTLP_CONFIG_LOGS_ENABLED=true
+      - DD_LOGS_ENABLED=true
+      - DD_APM_ENABLED=true
+      - DD_PROCESS_AGENT_ENABLED=true
+      - DD_DOGSTATSD_NON_LOCAL_TRAFFIC=true
+      - DD_APM_NON_LOCAL_TRAFFIC=true
+      - HOST_PROC=/proc
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /proc/:/host/proc/:ro
+      - /sys/fs/cgroup:/host/sys/fs/cgroup:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8126:8126"

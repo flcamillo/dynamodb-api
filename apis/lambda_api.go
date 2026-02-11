@@ -9,8 +9,6 @@ import (
 
 // Configuração da API para AWS Lambda.
 type LambdaApiConfig struct {
-	// log de aplicação
-	Log interfaces.Log
 	// repositório de dados
 	Repository interfaces.Repository
 }
@@ -31,7 +29,6 @@ func NewLambdaApi(config *LambdaApiConfig) *LambdaApi {
 // Inicia a API para AWS Lambda.
 func (p *LambdaApi) Run() {
 	handler := handlers.NewLambdaHandler(&handlers.LambdaHandlerConfig{
-		Log:        p.config.Log,
 		Repository: p.config.Repository,
 	})
 	lambda.Start(handler.HandleRequest)

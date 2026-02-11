@@ -1,7 +1,6 @@
 package repositories
 
 import (
-	"api/interfaces"
 	"api/models"
 	"context"
 	"fmt"
@@ -15,8 +14,6 @@ import (
 
 // Define a configuração do repositório de memória.
 type MemoryDBConfig struct {
-	// log de aplicação
-	Log interfaces.Log
 	// tempo de expiração dos registros
 	TTL time.Duration
 }

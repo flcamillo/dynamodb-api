@@ -74,7 +74,6 @@ func newPropagator() propagation.TextMapPropagator {
 // Cria um provedor de rastreamento com exportador OTLP via gRPC.
 func newTracerProvider(ctx context.Context) (*trace.TracerProvider, error) {
 	traceExporter, err := otlptracegrpc.New(ctx,
-		otlptracegrpc.WithEndpoint("localhost:4317"),
 		otlptracegrpc.WithInsecure(),
 	)
 	if err != nil {
@@ -89,7 +88,6 @@ func newTracerProvider(ctx context.Context) (*trace.TracerProvider, error) {
 // Cria um provedor de métricas com exportador OTLP via gRPC.
 func newMeterProvider(ctx context.Context) (*metric.MeterProvider, error) {
 	metricExporter, err := otlpmetricgrpc.New(ctx,
-		otlpmetricgrpc.WithEndpoint("localhost:4317"),
 		otlpmetricgrpc.WithInsecure(),
 	)
 	if err != nil {
@@ -104,7 +102,6 @@ func newMeterProvider(ctx context.Context) (*metric.MeterProvider, error) {
 // Cria um provedor de logs com exportador OTLP via gRPC.
 func newLoggerProvider(ctx context.Context) (*log.LoggerProvider, error) {
 	logExporter, err := otlploggrpc.New(ctx,
-		otlploggrpc.WithEndpoint("localhost:4317"),
 		otlploggrpc.WithInsecure(),
 	)
 	if err != nil {

@@ -25,7 +25,7 @@ var (
 // inicializa recursos essenciais da aplicação
 func init() {
 	// inicializa o log padrão
-	slog.SetDefault(otelslog.NewLogger(os.Getenv("DD_SERVICE")))
+	slog.SetDefault(otelslog.NewLogger(os.Getenv("OTEL_SERVICE_NAME")))
 	// inicializa as configurações da aplicação
 	currentDirectory, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
